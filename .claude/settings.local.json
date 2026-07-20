@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:github.com)",
+      "Bash(mkdir -p __TRACKED_VAR__/bbref)",
+      "Bash(curl -sL https://raw.githubusercontent.com/adspawn/bb-ballistics/main/index.html -o \"C:/Users/YUKEY/AppData/Local/Temp/claude/C--Users-YUKEY-Documents-airsoft-fps/4907d891-d93a-4dc6-a2f6-2ecdd1795189/scratchpad/bb_index.html\")"
+    ]
+  }
+}
