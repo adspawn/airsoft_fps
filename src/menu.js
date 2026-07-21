@@ -120,14 +120,28 @@ export function wireMenuUI(){
     S.ricochetHit=false;
     $("ricochetOff").classList.add("sel"); $("ricochetOn").classList.remove("sel");
   });
+  /* 選択中のモードに関係する設定行だけを表示する
+     - 射撃練習: 装備設定(BB弾重量・初速・サイクル)
+     - 対戦(NPC): 対戦ルール・NPCの強さ/数・バリケード
+     - マップ作成: 設定なし / オンラインPVP: 部屋作成時にロビーで設定
+     - 跳弾ヒットは射撃が発生する全モードで共通表示（装備値自体は全モード共通） */
+  function updateMenuRows(){
+    const range=S.mode==="range", vs=S.mode==="vs";
+    for (const id of ["rowMass","rowV0","rowCycle"]) $(id).style.display=range?"flex":"none";
+    $("menuEnergy").style.display=range?"block":"none";
+    for (const id of ["rowVsRuleset","rowDiff","rowNpcCount","rowVsMap"]) $(id).style.display=vs?"flex":"none";
+    $("rowRicochet").style.display = S.mode==="edit" ? "none" : "flex";
+  }
   const modeBtns={range:$("modeRange"), vs:$("modeVs"), edit:$("modeEdit"), pvp:$("modePvp")};
   for (const [m,btn] of Object.entries(modeBtns)){
     btn.addEventListener("click",()=>{
       S.mode=m;
       Object.values(modeBtns).forEach(b=>b.classList.remove("sel"));
       btn.classList.add("sel");
+      updateMenuRows();
     });
   }
+  updateMenuRows();
   $("vsMapRandom").addEventListener("click",()=>{
     S.vsMap="random";
     $("vsMapRandom").classList.add("sel"); $("vsMapCustom").classList.remove("sel");

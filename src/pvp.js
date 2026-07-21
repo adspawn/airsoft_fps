@@ -34,6 +34,12 @@ export function pvpNearestTarget(bot){
     const d=Math.hypot(rp.pos.x-bot.pos.x, rp.pos.z-bot.pos.z);
     if (d<bestD){ bestD=d; best={isLocal:false, id:rp.id, pos:rp.pos, vel:null, eyeH:1.6}; }
   }
+  // 敵NPCも標的にする（バトルロワイアルは全NPCが敵同士、チーム戦は敵チームのNPCのみ）
+  for (const ob of bots){
+    if (ob===bot || !ob.alive || pvpFriendly(bot.team, ob.team)) continue;
+    const d=Math.hypot(ob.pos.x-bot.pos.x, ob.pos.z-bot.pos.z);
+    if (d<bestD){ bestD=d; best={isLocal:false, id:"bot:"+ob.netId, pos:ob.pos, vel:null, eyeH:1.5}; }
+  }
   return best ? {target:best, dist:bestD} : null;
 }
 export function pvpBotShoot(bot,p,distP,target){
@@ -98,9 +104,9 @@ export function updatePvpBots(dt, now){
       }
       if (bot.timer<=0){
         bot.state="move"; bot.moveT=0;
-        // フラッグ戦: 一定確率で敵陣フラッグへ直行（赤NPC→青陣地の旗 / 青NPC→赤陣地の旗）
+        // フラッグ戦: 難易度に応じた確率(flagRush)で敵陣フラッグへ直行（赤NPC→青陣地の旗 / 青NPC→赤陣地の旗）
         const fg=pvpBotFlagGoal(bot);
-        bot.wp = (fg && Math.random()<0.25)
+        bot.wp = (fg && Math.random()<DIFF_PARAMS[bot.diff||S.diff].flagRush)
           ? {x:fg.x+(Math.random()*2-1)*1.5, z:fg.z+(Math.random()*2-1)*1.5}
           : pickWp(bot);
       }
@@ -133,7 +139,10 @@ let pvpBotFlagCaptured=false;   // 1試合1回だけ報告（多重emit防止。
 export function onPvpBotHit(bot, shooterId){
   bot.alive=false; bot.fallT=0;
   spawnParticles(bot.grp.position, 0xffffff, 5, 1.4);
-  if (pvp.socket) pvp.socket.emit("game:botHit", {botId:"bot:"+bot.netId, shooterId});
+  // プレイヤーによる撃破のみサーバーへ報告（キル数加算）。
+  // NPC同士の撃ち合いはスコア対象外で、倒れた状態はgame:botsのブロードキャストで全員に同期される
+  if (pvp.socket && !String(shooterId).startsWith("bot:"))
+    pvp.socket.emit("game:botHit", {botId:"bot:"+bot.netId, shooterId});
 }
 let pvpBotsLastSend=0;
 export function updatePvpBotsNetSend(now){
@@ -149,7 +158,7 @@ export function pvpApplyBotsState(list){
     seen.add(d.id);
     let rb=pvp.bots.get(d.id);
     if (!rb){
-      const pivot=new THREE.Group(); pivot.add(buildBotMesh()); scene.add(pivot);
+      const pivot=new THREE.Group(); pivot.add(buildBotMesh(d.team||null)); scene.add(pivot);
       pivot.position.set(d.x,0,d.z);
       rb={pivot, pos:new THREE.Vector3(d.x,0,d.z), targetPos:new THREE.Vector3(d.x,0,d.z),
           yaw:d.yaw, targetYaw:d.yaw, alive:true, fallT:-1, team:d.team||null};
@@ -331,7 +340,7 @@ function pvpSpawnPos(team, spawnIndex){
 }
 function pvpCreateRemoteAvatar(p){
   const pivot=new THREE.Group();
-  pivot.add(buildBotMesh());
+  pivot.add(buildBotMesh(p.team||null));   // チーム戦なら他プレイヤーもチームカラーで表示
   const tag=makeNameSprite(p.name); tag.position.y=1.9; pivot.add(tag);
   scene.add(pivot);
   const sp=pvpSpawnPos(p.team, p.spawnIndex||0);

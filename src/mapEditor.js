@@ -65,6 +65,7 @@ export function makeGhost(){
   scene.add(edit.ghost);
 }
 export function enterEditMode(){
+  edit.snapOn=false;   // スナップ状態は毎回OFFから開始（Fキーでトグル）
   const saved=loadCustomMap()||[];
   for (const d of saved) editPlace(d.t, d.x, d.y||0, d.z, d.o, false);
   // フラッグを目印表示
@@ -120,18 +121,15 @@ export function editDelete(){
   }
 }
 /* ゴースト追従（毎フレーム）:
-   Shiftキーを押しっぱなしの間だけスナップ有効（積み重ね中心/隣接/0.25mグリッド/縁吸着）。
-   押していなければノンスナップ＝レイの当たった座標にそのまま自由配置。 */
+   Fキーでスナップ ON/OFF をトグル（積み重ね中心/隣接/0.25mグリッド/縁吸着）。
+   OFFならノンスナップ＝レイの当たった座標にそのまま自由配置。 */
 export function updateEdit(){
   if (S.mode!=="edit" || !RT.locked){ if (edit.ghost) edit.ghost.visible=false; return; }
   camera.getWorldDirection(_dir);
   edit.valid=false;
   let show=false, x=0, y0=0, z=0;
   const d=propDims(edit.sel,edit.o);
-  // Altはブラウザ/OSのメニューキー予約と衝突し、WASD同時押しでフォーカスが奪われ
-  // キーが押しっぱなしのまま固まる事故が起きるため使わない（Shiftは安全）
-  const snapOn = !!keys["ShiftLeft"] || !!keys["ShiftRight"];
-  edit.snapOn=snapOn;
+  const snapOn = edit.snapOn;   // Fキーのトグル状態（player.jsのkeydownで切替）
   const snap=(v)=> Math.round(v*4)/4;
 
   editRaycaster.set(camera.position, _dir);

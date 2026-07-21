@@ -37,7 +37,7 @@
     </div>
     <div id="editBoard" style="display:none">
       <div>マップ作成 ｜ <span class="big" id="editSel">ベニア板</span>　設置数 <b id="editCount">0</b>　<b id="editSnapState">フリー配置</b></div>
-      <div>1:板 2:ドラム 3:箱 ｜ ホイール/R:回転(45°刻み) ｜ 左:設置 右:削除 ｜ Space:上昇 Shift:下降+スナップ ｜ 自動保存</div>
+      <div>1:板 2:ドラム 3:箱 ｜ ホイール/R:回転(45°刻み) ｜ 左:設置 右:削除 ｜ Space:上昇 Shift:下降 ｜ F:スナップ切替 ｜ 自動保存</div>
       <div>E: JSONで書き出し ｜ I: JSON読み込み</div>
     </div>
     <input type="file" id="mapImportInput" accept=".json,application/json" style="display:none">
@@ -292,14 +292,15 @@
         <button class="chip" id="modePvp">オンラインPVP</button>
       </div>
     </div>
-    <div class="setRow">
+    <!-- 対戦(NPC)モード用の設定（モード選択に応じて表示切替） -->
+    <div class="setRow" id="rowVsRuleset">
       <label>対戦ルール</label>
       <div class="chips" id="vsRulesetChips">
         <button class="chip sel" data-r="flag">フラッグ戦</button>
         <button class="chip" data-r="elim">殲滅戦</button>
       </div>
     </div>
-    <div class="setRow">
+    <div class="setRow" id="rowDiff">
       <label>NPCの強さ</label>
       <div class="chips" id="diffChips">
         <button class="chip" data-d="weak">よわい</button>
@@ -307,34 +308,35 @@
         <button class="chip" data-d="strong">つよい</button>
       </div>
     </div>
-    <div class="setRow">
+    <div class="setRow" id="rowNpcCount">
       <label>NPCの数</label>
       <input type="range" id="npcCountSlider" min="1" max="8" step="1" value="3">
       <span class="val" id="npcCountVal">3体</span>
     </div>
-    <div class="setRow">
+    <div class="setRow" id="rowVsMap">
       <label>バリケード</label>
       <div class="chips">
         <button class="chip sel" id="vsMapRandom">ランダム</button>
         <button class="chip" id="vsMapCustom">カスタムマップ</button>
       </div>
     </div>
-    <div class="setRow">
+    <!-- 射撃練習モード用の装備設定（値は全モード共通で使われる） -->
+    <div class="setRow" id="rowMass">
       <label>BB弾 重量</label>
       <div class="chips" id="massChips"></div>
     </div>
-    <div class="setRow">
+    <div class="setRow" id="rowV0">
       <label>初速</label>
       <input type="range" id="v0Slider" min="60" max="150" step="1" value="92">
       <span class="val" id="v0Val">92 m/s</span>
     </div>
     <div id="menuEnergy">エネルギー: 0.85 J（法定 0.98 J 以下）</div>
-    <div class="setRow">
+    <div class="setRow" id="rowCycle">
       <label>サイクル</label>
       <input type="range" id="cycleSlider" min="5" max="30" step="0.5" value="13">
       <span class="val" id="cycleVal">13 発/秒</span>
     </div>
-    <div class="setRow">
+    <div class="setRow" id="rowRicochet">
       <label>跳弾ヒット</label>
       <div class="chips" id="ricochetChips">
         <button class="chip sel" id="ricochetOn">ON</button>
@@ -360,6 +362,7 @@
       <div><b>T</b> — 60秒タイムアタック</div>
       <div><b>1/2/3</b> — [マップ作成] 板/ドラム/箱</div>
       <div><b>R</b> — [マップ作成] 板の回転</div>
+      <div><b>F</b> — [マップ作成] スナップ切替</div>
       <div><b>Esc</b> — メニュー</div>
     </div>
     <div id="credit">

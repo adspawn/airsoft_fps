@@ -15,9 +15,10 @@ import { gunProcedural, gunCorrected } from "./gun.js";
 import { flashHitmarker } from "./targets.js";
 
 export const DIFF_PARAMS={
-  weak:  {spread:3.5, react:0.9,  burst:2, cycle:5,  speed:2.2, lead:0,   engage:2.2},
-  normal:{spread:1.8, react:0.5,  burst:4, cycle:9,  speed:3.2, lead:0.5, engage:3.0},
-  strong:{spread:0.8, react:0.25, burst:7, cycle:14, speed:4.3, lead:1.0, engage:3.5},
+  // flagRush: フラッグ戦で移動先を決め直すとき敵陣フラッグへ直行する確率（強いほど貪欲）
+  weak:  {spread:3.5, react:0.9,  burst:2, cycle:5,  speed:2.2, lead:0,   engage:2.2, flagRush:0.25},
+  normal:{spread:1.8, react:0.5,  burst:4, cycle:9,  speed:3.2, lead:0.5, engage:3.0, flagRush:0.45},
+  strong:{spread:0.8, react:0.25, burst:7, cycle:14, speed:4.3, lead:1.0, engage:3.5, flagRush:0.70},
 };
 export const DIFF_NAMES={weak:"よわい", normal:"ふつう", strong:"つよい"};
 const _v1=new THREE.Vector3(), _v2=new THREE.Vector3(),
@@ -234,37 +235,43 @@ export function genVsField(data){
   rebuildYukaObstacles();
 }
 
-export function buildBotMesh(){
+/* team: null=従来のOD緑 / "red"=赤系 / "blue"=青系（チーム戦での視認用） */
+export function buildBotMesh(team){
   const g=new THREE.Group();
-  const green=new THREE.MeshLambertMaterial({color:0x4a5d3a});
-  const dark =new THREE.MeshLambertMaterial({color:0x33402c});
+  const bodyCol = team==="red"?0x9c3b2e : team==="blue"?0x2e5a9c : 0x4a5d3a;
+  const darkCol = team==="red"?0x6e2a20 : team==="blue"?0x203f6e : 0x33402c;
+  const body=new THREE.MeshLambertMaterial({color:bodyCol});
+  const dark =new THREE.MeshLambertMaterial({color:darkCol});
   const skin =new THREE.MeshLambertMaterial({color:0xc8a67f});
   const black=new THREE.MeshLambertMaterial({color:0x222222});
   const mk=(geo,mat,x,y,z)=>{const m=new THREE.Mesh(geo,mat);
     m.position.set(x,y,z); m.castShadow=true; g.add(m); return m;};
   mk(new THREE.BoxGeometry(.3,.8,.22), dark, 0,.4,0);       // 脚
-  mk(new THREE.BoxGeometry(.42,.55,.26), green, 0,1.07,0);  // 胴
+  mk(new THREE.BoxGeometry(.42,.55,.26), body, 0,1.07,0);   // 胴
   mk(new THREE.SphereGeometry(.14,10,8), skin, 0,1.5,0);    // 頭
-  mk(new THREE.BoxGeometry(.34,.09,.30), green, 0,1.62,0);  // 帽子
+  mk(new THREE.BoxGeometry(.34,.09,.30), body, 0,1.62,0);   // 帽子
   mk(new THREE.BoxGeometry(.05,.09,.55), black, .13,1.25,-.25); // 銃
   return g;
 }
 
 /* ---- 被弾死亡演出: プレイヤーが倒れながら三人称視点へカメラが引いていく ---- */
 const DEATH_FALL_TIME=0.9, DEATH_PULL_TIME=1.6;
-let deathT=0, deathBodyPivot=null;
+let deathT=0, deathBodyPivot=null, deathBodyTeam;
 const _deathStartCamPos=new THREE.Vector3(), _deathBodyPos=new THREE.Vector3(),
       _deathBack=new THREE.Vector3(), _deathTarget=new THREE.Vector3(), _deathLook=new THREE.Vector3();
-function ensureDeathBody(){
-  if (deathBodyPivot) return;
+function ensureDeathBody(team){
+  if (deathBodyPivot && deathBodyTeam===team) return;
+  if (deathBodyPivot) scene.remove(deathBodyPivot);
   deathBodyPivot=new THREE.Group();
-  deathBodyPivot.add(buildBotMesh());
+  deathBodyPivot.add(buildBotMesh(team));
   deathBodyPivot.visible=false;
   scene.add(deathBodyPivot);
+  deathBodyTeam=team;
 }
 export function getDeathBodyPivot(){ return deathBodyPivot; }
 export function startDeathSequence(){
-  ensureDeathBody();
+  // PVPチーム戦では倒れる自分の身代わりも自チームカラーで表示
+  ensureDeathBody(S.mode==="pvp" ? pvp.myTeam : null);
   RT.dying=true; deathT=0;
   deathBodyPivot.position.set(player.pos.x, player.pos.y, player.pos.z);
   deathBodyPivot.rotation.set(0, player.yaw, 0);
@@ -295,8 +302,9 @@ export function updateDeathCam(dt){
 
 export function pickWp(bot){
   const r=Math.random();
-  // フラッグ戦: 一定確率で自陣フラッグへ直行、または前進側のカバーへ（殲滅戦・PVPでは旗が無いので使わない）
-  if (bot && S.mode==="vs" && S.vsRuleset==="flag" && r<0.18){
+  // フラッグ戦: 難易度に応じた確率(flagRush)で自陣フラッグへ直行、または前進側のカバーへ
+  // （殲滅戦・PVPでは旗が無いので使わない。PVPフラッグ戦のNPCはpvp.js側で敵陣フラッグを狙う）
+  if (bot && S.mode==="vs" && S.vsRuleset==="flag" && r<DIFF_PARAMS[S.diff].flagRush){
     return {x:PLAYER_FLAG.x+(Math.random()*2-1)*1.5, z:PLAYER_FLAG.z-1.2+(Math.random()*2-1)};
   }
   if (bot && r<0.60){
@@ -314,7 +322,7 @@ export function spawnBots(n, opts){
   const o=opts||{};
   const team=o.team||null, diff=o.diff||S.diff, pts=o.spawnSet||spawnPoints, idOffset=o.idOffset||0;
   for (let i=0;i<n;i++){
-    const grp=buildBotMesh(); scene.add(grp);
+    const grp=buildBotMesh(team); scene.add(grp);
     const sp=pts[i%pts.length];
     const bot={grp, pos:new THREE.Vector3(sp[0],0,sp[1]), yaw:0, targetYaw:0,
       state:"move", wp:null, moveT:0, timer:0, reactT:0, cooldown:0,

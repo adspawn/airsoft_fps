@@ -196,6 +196,11 @@ body.sightcal-walk #hud > :not(#crosshair){display:none}
 #pvpCreateBtn,#pvpReadyBtn.active,#pvpStartBtn{background:var(--accent);color:#141414;border:none}
 #pvpJoinSelectedBtn{background:#2e8bff;color:#0a1420;border:none}
 #pvpLobby button:disabled{opacity:.4;cursor:default}
+/* ロビー内の設定チップ: 汎用.chipスタイルが「#pvpLobby button」(ID込み)に負けて
+   選択色が表示されなかったため、同等以上の詳細度で明示的に上書きする */
+#pvpLobby .chip{flex:none;padding:5px 10px;border-radius:8px;font-size:12px;font-weight:400;
+  border:1px solid rgba(255,255,255,.18);background:transparent;color:var(--text)}
+#pvpLobby .chip.sel{background:var(--accent);border-color:var(--accent);color:#141414;font-weight:700}
 
 /* ===== PVP HUD ===== */
 #pvpBoard{position:absolute;top:16px;left:16px}

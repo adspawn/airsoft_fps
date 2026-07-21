@@ -245,12 +245,14 @@ export function stepBBs(dt){
           killBB(bb); hitLocal=true;
         }
       }
-      // ホストのみ: 他プレイヤーの弾が自分のNPCに当たっていないかも判定（NPCはホスト権威のため）
+      // ホストのみ: 他プレイヤー・NPCの弾が自分のNPCに当たっていないかも判定（NPCはホスト権威のため）。
+      // NPC同士の撃ち合いも成立させる（自分の弾は自分に当たらない・チーム戦の味方撃ちは無効）
       if (!hitLocal && S.mode==="pvp" && pvp.iAmHost && bb.owner==="pvpEnemy" &&
-          (S.ricochetHit || bb.bounces===0) && !String(bb.shooterId).startsWith("bot:")){
+          (S.ricochetHit || bb.bounces===0)){
         let hitBot=null;
         outerH: for (const bot of bots){
           if (!bot.alive || pvpFriendly(bb.shooterTeam, bot.team)) continue;
+          if (bb.shooterId==="bot:"+bot.netId) continue;   // 発射したNPC自身は除外
           for (const sph of BOT_SPHERES){
             if (segHitSphere(bb.prev,bb.pos,bot.pos.x,bot.pos.y+sph[0],bot.pos.z,sph[1])){
               hitBot=bot; break outerH;

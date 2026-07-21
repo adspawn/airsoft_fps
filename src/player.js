@@ -258,6 +258,7 @@ export function wireInput({ edit, editPlace, editDelete, makeGhost, updateEditHU
       if (e.code==="Digit2"){ edit.sel="drum";  makeGhost(); updateEditHUD(); }
       if (e.code==="Digit3"){ edit.sel="crate"; makeGhost(); updateEditHUD(); }
       if (e.code==="KeyR"){ edit.o=(edit.o+90)%360; makeGhost(); updateEditHUD(); }
+      if (e.code==="KeyF") edit.snapOn=!edit.snapOn;   // スナップ ON/OFF トグル
       if (e.code==="KeyE") exportCustomMap();
       if (e.code==="KeyI") $("mapImportInput").click();
       return;   // 以降の武器系キーは無効
