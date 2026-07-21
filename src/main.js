@@ -33,7 +33,7 @@ import {
   pvpConnect, pvpCreateRoom, pvpJoinRoom, pvpLeaveRoom, pvpRefreshRoomList, pvpStartMatch,
   updatePvpRemotes, updatePvpNetSend, onPvpPlayerHit, onPvpBotHit, updatePvpBots,
   updatePvpBotsNetSend, updatePvpBotsRemote, pvpApplyBotsState, updatePvpFlagCapture,
-  getPvpMyKills, getPvpMyDeaths, wirePvpLobbyUI,
+  getPvpMyKills, getPvpMyDeaths, wirePvpLobbyUI, renderPvpRoomView,
 } from "./pvp.js";
 import { applyMode, wireMenuUI } from "./menu.js";
 
@@ -50,7 +50,7 @@ wirePvpLobbyUI();
 wireMenuUI();
 wireInput({
   edit, editPlace, editDelete, makeGhost, updateEditHUD, exportCustomMap,
-  startChallenge, sightCalOrbit, updateOrbitCamera, applyMode, pvpConnect,
+  startChallenge, sightCalOrbit, updateOrbitCamera, applyMode, pvpConnect, renderPvpRoomView,
 });
 
 /* ============================================================

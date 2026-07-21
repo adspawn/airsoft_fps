@@ -235,7 +235,7 @@ export function updateHopHUD(){
    （main.js が全モジュール読込み後に wireInput() を一度だけ呼んで配線する）
    ============================================================ */
 export function wireInput({ edit, editPlace, editDelete, makeGhost, updateEditHUD, exportCustomMap,
-  startChallenge, sightCalOrbit, updateOrbitCamera, applyMode, pvpConnect }){
+  startChallenge, sightCalOrbit, updateOrbitCamera, applyMode, pvpConnect, renderPvpRoomView }){
 
   /* Ctrl+W誤爆対策: しゃがみ(Ctrl)+前進(W)を同時に押す操作がある都合上、
      ブラウザの「タブを閉じる」ショートカットと衝突しうる。
@@ -365,8 +365,12 @@ export function wireInput({ edit, editPlace, editDelete, makeGhost, updateEditHU
     RT.locked = document.pointerLockElement===renderer.domElement;
     document.body.classList.toggle("locked",RT.locked);
     if (!RT.locked) clearKeys();   // ロック解除の理由を問わず、押しっぱなし状態を必ずクリア
-    if (!RT.locked && S.mode==="pvp" && !pvp.inMatch){
-      // PVP試合終了後や離脱時はロビーへ戻す（シングルプレイのメニューには出さない）
+    // PVPモード中にロック解除されたら常にロビーへ戻す（試合中断・試合終了・離脱いずれも）。
+    // 以前は「試合中(inMatch)は表示しない」条件だったため、試合中にMキー等でロックを
+    // 解除すると #menu は表示されたまま(inline style="none")・ロビーも出ず、
+    // 何のUIも見えない「フリーズしたように見える」状態になっていた。
+    if (!RT.locked && S.mode==="pvp"){
+      renderPvpRoomView();
       $("pvpLobby").classList.add("show");
     }
   });

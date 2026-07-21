@@ -324,10 +324,13 @@ export function renderPvpRoomView(){
     if (p.id!==room.hostId && !p.ready) allReady=false;
   });
   const me = room.players.find(p=>p.id===pvp.myId);
-  $("pvpReadyBtn").style.display = isHost? "none":"block";
+  // 試合中にM等でポインタロックを解除した場合はロビーへ戻るが、試合自体は継続しているので
+  // 「試合に戻る」を出し、準備完了/試合開始/退出は隠す（試合中に押す意味が無い操作のため）
+  $("pvpResumeRow").style.display = pvp.inMatch ? "flex" : "none";
+  $("pvpReadyBtn").style.display = (!pvp.inMatch && !isHost) ? "block" : "none";
   $("pvpReadyBtn").classList.toggle("active", !!(me&&me.ready));
   $("pvpReadyBtn").textContent = (me&&me.ready)? "準備OK（解除）":"準備完了";
-  $("pvpStartBtn").style.display = isHost? "block":"none";
+  $("pvpStartBtn").style.display = (!pvp.inMatch && isHost) ? "block" : "none";
   $("pvpStartBtn").disabled = !allReady;   // 1人（ホストのみ）でも開始可能
 }
 /* チーム戦(殲滅戦/フラッグ戦)は自陣フラッグ周辺のリング、バトルロワイアルは従来の共通spawnPointsを使う */
@@ -512,6 +515,12 @@ export function wirePvpLobbyUI(){
   $("pvpRefreshBtn").addEventListener("click", pvpRefreshRoomList);
   $("pvpCreateBtn").addEventListener("click", pvpCreateRoom);
   $("pvpLeaveBtn").addEventListener("click", pvpLeaveRoom);
+  // 試合中にMキー等でロックを解除してロビーが出た場合、試合自体は継続しているので
+  // 離脱せずポインタロックを取り直すだけで元の試合に戻れる
+  $("pvpResumeBtn").addEventListener("click",()=>{
+    $("pvpLobby").classList.remove("show");
+    renderer.domElement.requestPointerLock();
+  });
   $("pvpReadyBtn").addEventListener("click",()=>{
     if (!pvp.currentRoom || !pvp.socket) return;
     const me=pvp.currentRoom.players.find(p=>p.id===pvp.myId);
