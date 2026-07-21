@@ -1,0 +1,163 @@
+/* ============================================================
+   メインメニュー設定・モード切替（applyMode）
+   ============================================================ */
+import { $, S, RT, clearKeys, weapon, MAG_SIZE, EYE_H, player, targets, pvp,
+  VS_ARENA, PLAYER_FLAG, RED_NPC_SPAWNS, BLUE_NPC_SPAWNS } from "./state.js";
+import { solveOptimalSpin } from "./physics.js";
+import { bbPool, killBB } from "./bb.js";
+import { gun } from "./gun.js";
+import { updateScoreHUD, plateMat } from "./targets.js";
+import { enterEditMode, exitEditMode } from "./mapEditor.js";
+import { updateAmmoHUD, onHopChanged, onLoadoutChanged } from "./player.js";
+import { clearBots, clearVsField, genVsField, spawnBots, endDeathSequence, updateVsHUD,
+  DIFF_NAMES } from "./bots.js";
+import { pvpClearAvatars } from "./pvp.js";
+
+/* モード適用（開始ボタンから、PVPは試合開始イベントから） */
+export function applyMode(){
+  clearKeys();   // モード切替時に前のモードのキー押下状態を持ち越さない
+  const vs=S.mode==="vs", editing=S.mode==="edit", range=S.mode==="range", pvpMode=S.mode==="pvp";
+  for (const tg of targets){
+    tg.grp.visible=range;
+    if (range){
+      tg.alive=true; tg.animT=-1;
+      if (tg.pivot) tg.pivot.rotation.x=0;
+      if (tg.plate) tg.plate.material=plateMat;
+      if (tg.type==="can"){
+        tg.grp.position.set(tg.baseX,tg.homeY,tg.z);
+        tg.grp.rotation.set(0,0,0); tg.vel.set(0,0,0); tg.flying=false;
+      }
+    } else {
+      tg.alive=false;
+    }
+  }
+  clearBots();
+  clearVsField();
+  exitEditMode();
+  endDeathSequence();
+  pvpClearAvatars();
+  bbPool.forEach(b=>killBB(b));
+  RT.firing=false; RT.ads=false;
+  // リスポーン地点にリセット（対戦・マップ作成・PVPは射撃練習場と別の専用50m×50mフィールドへ）
+  if (vs||editing||pvpMode) player.pos.set(VS_ARENA.cx, 0, PLAYER_FLAG.z-2);
+  else player.pos.set(0,0,0);
+  player.vel.set(0,0,0);
+  player.yaw=0;   // yaw=0で-Z方向(敵フラッグ側)を向く
+  player.pitch=0; player.crouch=false; player.crouchToggle=false;
+  $("rangeBoard").style.display=range?"block":"none";
+  $("vsBoard").style.display=vs?"block":"none";
+  $("editBoard").style.display=editing?"block":"none";
+  $("pvpBoard").style.display=pvpMode?"block":"none";
+  $("ammoPanel").style.display=editing?"none":"block";
+  $("hopPanel").style.display=editing?"none":"block";
+  gun.visible=!editing;
+  S.challenge.active=false; $("timer").textContent="";
+  if (vs){
+    genVsField();                       // バリケード配置（カスタム/ランダム）+ フラッグ設置（フラッグ戦のみ）
+    S.vs.you=0; S.vs.active=true;
+    RT.invulnUntil=performance.now()/1000+2;
+    spawnBots(S.vsNpcCount);
+    updateVsHUD();
+    const ruleName = S.vsRuleset==="elim" ? "殲滅戦" : "フラッグ戦";
+    $("vsInfo").textContent=`${ruleName} ｜ NPC: ${DIFF_NAMES[S.diff]}×${S.vsNpcCount} ｜ 被弾=即死`;
+  } else if (editing){
+    enterEditMode();
+  } else if (pvpMode){
+    genVsField(pvp.pendingMapData && pvp.pendingMapData.length ? pvp.pendingMapData : null);
+    if (pvp.iAmHost){
+      if (pvp.gameType==="elim" || pvp.gameType==="flag"){
+        if (pvp.pendingNpcCountRed>0) spawnBots(pvp.pendingNpcCountRed,
+          {team:"red", diff:pvp.pendingNpcDiffRed, spawnSet:RED_NPC_SPAWNS, idOffset:0});
+        if (pvp.pendingNpcCountBlue>0) spawnBots(pvp.pendingNpcCountBlue,
+          {team:"blue", diff:pvp.pendingNpcDiffBlue, spawnSet:BLUE_NPC_SPAWNS, idOffset:pvp.pendingNpcCountRed});
+      } else if (pvp.pendingNpcCount>0){
+        spawnBots(pvp.pendingNpcCount, {diff:pvp.pendingNpcDiff});
+      }
+    }
+    RT.invulnUntil=performance.now()/1000+2;
+  } else {
+    S.score=0; S.shots=0; S.hits=0; updateScoreHUD();
+  }
+  weapon.mag=MAG_SIZE; weapon.reloading=false;
+  $("reloadMsg").textContent=""; updateAmmoHUD();
+}
+
+export function wireMenuUI(){
+  const masses=[0.12,0.16,0.20,0.25,0.28,0.30,0.36,0.43];
+  const wrap=$("massChips");
+  for (const m of masses){
+    const b=document.createElement("button");
+    b.className="chip"+(m===S.massG?" sel":"");
+    b.textContent=m.toFixed(2)+"g";
+    b.addEventListener("click",()=>{
+      S.massG=m;
+      wrap.querySelectorAll(".chip").forEach(c=>c.classList.remove("sel"));
+      b.classList.add("sel");
+      updateMenuEnergy(); onLoadoutChanged();
+    });
+    wrap.appendChild(b);
+  }
+  function updateMenuEnergy(){
+    const E=0.5*S.massG*1e-3*S.v0*S.v0;
+    const el=$("menuEnergy");
+    el.textContent=`エネルギー: ${E.toFixed(2)} J`+(E>0.98?"（⚠ 法定 0.98 J 超過）":"（法定 0.98 J 以下）");
+    el.classList.toggle("illegal",E>0.98);
+  }
+  $("v0Slider").addEventListener("input",e=>{
+    S.v0=+e.target.value;
+    $("v0Val").textContent=S.v0+" m/s";
+    updateMenuEnergy(); onLoadoutChanged();
+  });
+  $("cycleSlider").addEventListener("input",e=>{
+    S.cycle=+e.target.value;
+    $("cycleVal").textContent=S.cycle+" 発/秒";
+  });
+  $("ricochetOn").addEventListener("click",()=>{
+    S.ricochetHit=true;
+    $("ricochetOn").classList.add("sel"); $("ricochetOff").classList.remove("sel");
+  });
+  $("ricochetOff").addEventListener("click",()=>{
+    S.ricochetHit=false;
+    $("ricochetOff").classList.add("sel"); $("ricochetOn").classList.remove("sel");
+  });
+  const modeBtns={range:$("modeRange"), vs:$("modeVs"), edit:$("modeEdit"), pvp:$("modePvp")};
+  for (const [m,btn] of Object.entries(modeBtns)){
+    btn.addEventListener("click",()=>{
+      S.mode=m;
+      Object.values(modeBtns).forEach(b=>b.classList.remove("sel"));
+      btn.classList.add("sel");
+    });
+  }
+  $("vsMapRandom").addEventListener("click",()=>{
+    S.vsMap="random";
+    $("vsMapRandom").classList.add("sel"); $("vsMapCustom").classList.remove("sel");
+  });
+  $("vsMapCustom").addEventListener("click",()=>{
+    S.vsMap="custom";
+    $("vsMapCustom").classList.add("sel"); $("vsMapRandom").classList.remove("sel");
+  });
+  $("diffChips").addEventListener("click",e=>{
+    const b=e.target.closest(".chip"); if(!b) return;
+    S.diff=b.dataset.d;
+    $("diffChips").querySelectorAll(".chip").forEach(c=>c.classList.remove("sel"));
+    b.classList.add("sel");
+  });
+  $("vsRulesetChips").addEventListener("click",e=>{
+    const b=e.target.closest(".chip"); if(!b) return;
+    S.vsRuleset=b.dataset.r;
+    $("vsRulesetChips").querySelectorAll(".chip").forEach(c=>c.classList.remove("sel"));
+    b.classList.add("sel");
+  });
+  $("npcCountSlider").addEventListener("input",e=>{
+    S.vsNpcCount=+e.target.value;
+    $("npcCountVal").textContent=S.vsNpcCount+"体";
+  });
+  updateMenuEnergy();
+
+  /* 初回: 適正ホップを計算して自動セット */
+  setTimeout(()=>{
+    S.optimalSpin=solveOptimalSpin({v0:S.v0, massG:S.massG, h0:EYE_H, drag:S.drag});
+    S.spinRps=Math.round(S.optimalSpin);
+    onHopChanged();
+  },50);
+}
