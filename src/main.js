@@ -25,7 +25,7 @@ import { updatePlayer, tryShoot, updateAmmoHUD, wireInput } from "./player.js";
 import {
   onBotHit, updateBots, updateVsRound, endMatch, onPlayerHit, updateDeathCam,
   startDeathSequence, endDeathSequence, getDeathBodyPivot, genVsField, genRandomVsProps,
-  vsProps, loadCustomMap,
+  vsProps, loadCustomMap, botAI, rebuildYukaObstacles,
 } from "./bots.js";
 import { editPlace, editDelete, editValidAt, updateEdit, exportCustomMap, importCustomMapData,
   saveCustomMap, makeGhost, updateEditHUD, wireMapEditorUI } from "./mapEditor.js";
@@ -78,7 +78,7 @@ window.__game={S, weapon, player, bbPool, targets, bots, spawnBB, simulate2D, so
   pvp, pvpConnect, pvpCreateRoom, pvpJoinRoom, pvpLeaveRoom, pvpRefreshRoomList,
   pvpStartMatch, updatePvpRemotes, updatePvpNetSend, spawnPoints, obstacles,
   updatePvpBots, updatePvpBotsNetSend, updatePvpBotsRemote, pvpApplyBotsState,
-  genRandomVsProps, genVsField, onPvpBotHit, updatePvpFlagCapture,
+  genRandomVsProps, genVsField, onPvpBotHit, updatePvpFlagCapture, botAI, rebuildYukaObstacles,
   RED_PLAYER_SPAWNS, BLUE_PLAYER_SPAWNS, RED_NPC_SPAWNS, BLUE_NPC_SPAWNS,
   get pvpMyKills(){return getPvpMyKills();}, get pvpMyDeaths(){return getPvpMyDeaths();}};
 

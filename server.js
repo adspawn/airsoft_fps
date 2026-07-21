@@ -286,6 +286,18 @@ io.on("connection", (socket) => {
     broadcastRoom(room);
   });
 
+  // フラッグ戦: NPC(ホスト権威)が敵陣の旗に到達した場合はホストが代理報告し、そのチームの勝利で試合終了
+  socket.on("game:botFlagCapture", ({ team } = {}) => {
+    const room = rooms.get(socket.data.roomId);
+    if (!room || room.state !== "playing" || room.hostId !== socket.id || room.gameType !== "flag") return;
+    if (team !== "red" && team !== "blue") return;
+    const scores = [...room.players.values()].map(x => ({ id: x.id, name: x.name, kills: x.kills, deaths: x.deaths }));
+    room.state = "lobby";
+    for (const x of room.players.values()) x.ready = false;
+    io.to(room.id).emit("game:over", { winnerId: null, winnerName: "NPC", winnerTeam: team, scores });
+    broadcastRoom(room);
+  });
+
   socket.on("disconnect", () => {
     leaveCurrentRoom(socket);
   });

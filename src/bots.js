@@ -1,9 +1,12 @@
 /* ============================================================
    対戦(NPC)モード: NPC AI・バリケード配置・フラッグ・被弾死亡演出
    （被弾死亡演出はPVPモードとも共有）
+   移動はYuka(操舵行動: Arrive+障害物回避+NPC間分離)、意思決定(状態遷移・
+   難易度・射撃タイミング)は自前のFSMという分担。
    ============================================================ */
 import { THREE, S, scene, camera, $, RT, obstacles, VS_ARENA, EDIT_AREA, currentBounds,
   coverPoints, spawnPoints, ENEMY_FLAG, PLAYER_FLAG, crateMat, bots, player, pvp } from "./state.js";
+import * as YUKA from "../libs/yuka.module.js";
 import { spawnParticles, showMsg } from "./effects.js";
 import { sndPing, sndShotFar, sndHitMe } from "./sound.js";
 import { spawnBB } from "./bb.js";
@@ -19,6 +22,72 @@ export const DIFF_PARAMS={
 export const DIFF_NAMES={weak:"よわい", normal:"ふつう", strong:"つよい"};
 const _v1=new THREE.Vector3(), _v2=new THREE.Vector3(),
       _v3=new THREE.Vector3(), _v4=new THREE.Vector3();
+
+/* ============================================================
+   Yuka 操舵基盤
+   - AABB障害物を球の列に分解して ObstacleAvoidanceBehavior に渡す
+     （Yukaの回避は boundingRadius=球 前提のため。細長いベニア板は複数球で覆う）
+   - NPC同士は SeparationBehavior で自然に距離を取る
+   - 障害物エンティティは EntityManager に登録しない（登録するとNPCの
+     「近傍」に含まれて分離挙動がカバー位置から押し出してしまうため、
+     回避ビヘイビアへ配列参照で渡すだけにする）
+   ============================================================ */
+export const botAI = {
+  manager: new YUKA.EntityManager(),
+  obstacles: [],   // YUKA.GameEntity(球)の配列。参照をビヘイビアと共有するため再代入禁止
+};
+/* 現在の obstacles(AABB) からYuka用の球障害物を再構築。
+   genVsField() がバリケードを再配置するたびに呼ばれる。
+   NPCの行動範囲は対戦アリーナ内に限られるので、アリーナ外(射撃練習場側)の
+   障害物は除外して回避判定のコストを抑える */
+export function rebuildYukaObstacles(){
+  botAI.obstacles.length=0;
+  const m=6;   // アリーナ境界からのマージン
+  for (const box of obstacles){
+    if (box.min.y>1.5) continue;   // 高所（積み上げ上段）は地上移動の妨げにならない
+    const cx=(box.max.x+box.min.x)/2, cz=(box.max.z+box.min.z)/2;
+    if (cx<EDIT_AREA.xMin-m || cx>EDIT_AREA.xMax+m ||
+        cz<EDIT_AREA.zMin-m || cz>EDIT_AREA.zMax+m) continue;
+    const hw=(box.max.x-box.min.x)/2, hd=(box.max.z-box.min.z)/2;
+    const long=Math.max(hw,hd), short=Math.min(hw,hd);
+    const r=short+0.3;
+    // 長軸方向に球を重なりを持たせて並べる（隙間があるとNPCが壁の中央へ突っ込む）
+    const n=Math.max(1, Math.ceil((long-short)/(0.7*r))+1);
+    for (let i=0;i<n;i++){
+      const t = n===1 ? 0 : (i/(n-1))*2-1;   // -1..+1
+      const off = t*(long-short);
+      const e=new YUKA.GameEntity();
+      e.position.set(hw>=hd ? cx+off : cx, 0, hw>=hd ? cz : cz+off);
+      e.boundingRadius=r;
+      botAI.obstacles.push(e);
+    }
+  }
+}
+/* 移動指示: 目的地(x,z)へ向けて操舵開始 */
+export function setBotSeek(bot, x, z, speed){
+  bot.arriveTarget.set(x, 0, z);
+  bot.arrive.active=true;
+  bot.vehicle.maxSpeed=speed;
+}
+/* 停止指示: 交戦中・死亡中はその場に留まる */
+export function setBotHold(bot){
+  bot.arrive.active=false;
+  bot.vehicle.maxSpeed=0;
+  bot.vehicle.velocity.set(0,0,0);
+}
+/* 全ビークルの操舵を1ステップ進める（フレームに1回、per-bot処理の後に呼ぶ） */
+export function yukaUpdate(dt){
+  botAI.manager.update(dt);
+}
+/* Yukaの計算結果をbot.posへ反映し、AABB衝突・境界クランプ(安全網)を掛けて
+   押し戻した位置をビークルへ書き戻す（ズレたまま次フレームへ持ち越さない） */
+export function syncBotFromVehicle(bot){
+  bot.pos.x=bot.vehicle.position.x;
+  bot.pos.z=bot.vehicle.position.z;
+  resolveBotCollision(bot);
+  bot.vehicle.position.x=bot.pos.x;
+  bot.vehicle.position.z=bot.pos.z;
+}
 
 let enemyFlagMesh=null, playerFlagMesh=null, lastFlagDist=-1;
 export const vsProps={meshes:[], obstacles:[]};
@@ -161,6 +230,8 @@ export function genVsField(data){
     playerFlagMesh.position.set(PLAYER_FLAG.x,0,PLAYER_FLAG.z);
     scene.add(playerFlagMesh); vsProps.meshes.push(playerFlagMesh);
   }
+  // バリケード配置が変わったのでYukaの回避用障害物も作り直す
+  rebuildYukaObstacles();
 }
 
 export function buildBotMesh(){
@@ -250,11 +321,34 @@ export function spawnBots(n, opts){
       burstLeft:0, pauseT:0, alive:true, fallT:0, netId:idOffset+i, team, diff};
     bot.wp=pickWp(bot);
     grp.position.copy(bot.pos);
+    // Yukaビークル（操舵担当）: 障害物回避+NPC間分離+到着。姿勢・yawは自前管理
+    const vehicle=new YUKA.Vehicle();
+    vehicle.position.set(sp[0],0,sp[1]);
+    vehicle.maxSpeed=DIFF_PARAMS[diff].speed;
+    vehicle.maxForce=10;                 // 加速度上限（急旋回しすぎない程度の滑らかさ）
+    vehicle.boundingRadius=0.4;
+    vehicle.updateOrientation=false;     // 向きはangleDeltaで自前スムージング
+    vehicle.updateNeighborhood=true;     // SeparationBehavior用の近傍更新
+    vehicle.neighborhoodRadius=2.5;
+    const arriveTarget=new YUKA.Vector3(bot.wp.x,0,bot.wp.z);
+    const arrive=new YUKA.ArriveBehavior(arriveTarget,2,0.3);
+    const avoid=new YUKA.ObstacleAvoidanceBehavior(botAI.obstacles);
+    avoid.weight=3;
+    const sep=new YUKA.SeparationBehavior();
+    sep.weight=1.5;
+    vehicle.steering.add(avoid);
+    vehicle.steering.add(sep);
+    vehicle.steering.add(arrive);
+    bot.vehicle=vehicle; bot.arrive=arrive; bot.arriveTarget=arriveTarget;
+    botAI.manager.add(vehicle);
     bots.push(bot);
   }
 }
 export function clearBots(){
-  for (const b of bots) scene.remove(b.grp);
+  for (const b of bots){
+    scene.remove(b.grp);
+    if (b.vehicle) botAI.manager.remove(b.vehicle);
+  }
   bots.length=0;
 }
 /* 遮蔽物チェック（銃口→ターゲット胸の直線をサンプリング）。tgt省略時はローカルプレイヤー。
@@ -308,27 +402,30 @@ function botShoot(bot,p,distP){
 export function updateBots(dt, now){
   if (S.mode!=="vs" || !S.vs.active) return;
   const p=DIFF_PARAMS[S.diff];
+  // 1st pass: 意思決定（状態遷移・射撃・移動指示）
   for (const bot of bots){
     if (!bot.alive){
       bot.fallT+=dt;
       bot.grp.rotation.x=Math.min(1.5, bot.fallT/0.25*1.5);   // 倒れたまま復活しない
+      setBotHold(bot);
       continue;
     }
     _v1.set(player.pos.x-bot.pos.x, 0, player.pos.z-bot.pos.z);
     const distP=_v1.length();
     if (bot.state==="move"){
       bot.moveT+=dt;
-      _v2.set(bot.wp.x-bot.pos.x, 0, bot.wp.z-bot.pos.z);
-      const L=_v2.length();
-      if (L<0.6 || bot.moveT>7){
+      const L=Math.hypot(bot.wp.x-bot.pos.x, bot.wp.z-bot.pos.z);
+      if (L<0.8 || bot.moveT>7){
         bot.state="engage";
         bot.timer=p.engage*(0.7+Math.random()*0.6);
         bot.reactT=p.react*(0.6+Math.random()*0.8);
         bot.burstLeft=p.burst; bot.pauseT=0;
+        setBotHold(bot);
       } else {
-        _v2.divideScalar(L);
-        bot.pos.addScaledVector(_v2, p.speed*dt);
-        bot.targetYaw=Math.atan2(-_v2.x,-_v2.z);
+        setBotSeek(bot, bot.wp.x, bot.wp.z, p.speed);
+        // 進行方向（回避で膨らんだ実際の速度ベクトル）を向く
+        const v=bot.vehicle.velocity;
+        if (v.squaredLength()>0.04) bot.targetYaw=Math.atan2(-v.x,-v.z);
       }
     } else {
       bot.timer-=dt;
@@ -348,7 +445,12 @@ export function updateBots(dt, now){
       }
       if (bot.timer<=0){ bot.state="move"; bot.wp=pickWp(bot); bot.moveT=0; }
     }
-    resolveBotCollision(bot);
+  }
+  // 2nd pass: 操舵を1ステップ進め、衝突解決した位置を反映
+  yukaUpdate(dt);
+  for (const bot of bots){
+    if (!bot.alive) continue;
+    syncBotFromVehicle(bot);
     bot.yaw += angleDelta(bot.targetYaw,bot.yaw)*Math.min(1,dt*8);
     bot.grp.position.copy(bot.pos);
     bot.grp.rotation.y=bot.yaw;

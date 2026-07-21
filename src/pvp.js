@@ -15,7 +15,7 @@ import { spawnBB } from "./bb.js";
 import { applySpread, updateAmmoHUD } from "./player.js";
 import { buildBotMesh, spawnBots, DIFF_PARAMS, DIFF_NAMES, losClear, resolveBotCollision,
   pickWp, angleDelta, startDeathSequence, endDeathSequence, genVsField, genRandomVsProps,
-  loadCustomMap } from "./bots.js";
+  loadCustomMap, setBotSeek, setBotHold, yukaUpdate, syncBotFromVehicle } from "./bots.js";
 import { applyMode } from "./menu.js";
 
 const _v1=new THREE.Vector3(), _v2=new THREE.Vector3(), _v3=new THREE.Vector3(), _v4=new THREE.Vector3();
@@ -53,29 +53,31 @@ export function pvpBotShoot(bot,p,distP,target){
 }
 export function updatePvpBots(dt, now){
   if (S.mode!=="pvp" || !pvp.inMatch || !pvp.iAmHost) return;
+  // 1st pass: 意思決定（状態遷移・射撃・移動指示）
   for (const bot of bots){
     const p=DIFF_PARAMS[bot.diff||S.diff];
     if (!bot.alive){
       bot.fallT+=dt;
       bot.grp.rotation.x=Math.min(1.5, bot.fallT/0.25*1.5);
+      setBotHold(bot);
       continue;
     }
     const nt=pvpNearestTarget(bot);
-    if (!nt){ resolveBotCollision(bot); bot.grp.position.copy(bot.pos); continue; }
+    if (!nt){ setBotHold(bot); continue; }
     const {target, dist:distP}=nt;
     if (bot.state==="move"){
       bot.moveT+=dt;
-      _v2.set(bot.wp.x-bot.pos.x, 0, bot.wp.z-bot.pos.z);
-      const L=_v2.length();
-      if (L<0.6 || bot.moveT>7){
+      const L=Math.hypot(bot.wp.x-bot.pos.x, bot.wp.z-bot.pos.z);
+      if (L<0.8 || bot.moveT>7){
         bot.state="engage";
         bot.timer=p.engage*(0.7+Math.random()*0.6);
         bot.reactT=p.react*(0.6+Math.random()*0.8);
         bot.burstLeft=p.burst; bot.pauseT=0;
+        setBotHold(bot);
       } else {
-        _v2.divideScalar(L);
-        bot.pos.addScaledVector(_v2, p.speed*dt);
-        bot.targetYaw=Math.atan2(-_v2.x,-_v2.z);
+        setBotSeek(bot, bot.wp.x, bot.wp.z, p.speed);
+        const v=bot.vehicle.velocity;
+        if (v.squaredLength()>0.04) bot.targetYaw=Math.atan2(-v.x,-v.z);
       }
     } else {
       bot.timer-=dt;
@@ -94,14 +96,40 @@ export function updatePvpBots(dt, now){
           }
         }
       }
-      if (bot.timer<=0){ bot.state="move"; bot.wp=pickWp(bot); bot.moveT=0; }
+      if (bot.timer<=0){
+        bot.state="move"; bot.moveT=0;
+        // フラッグ戦: 一定確率で敵陣フラッグへ直行（赤NPC→青陣地の旗 / 青NPC→赤陣地の旗）
+        const fg=pvpBotFlagGoal(bot);
+        bot.wp = (fg && Math.random()<0.25)
+          ? {x:fg.x+(Math.random()*2-1)*1.5, z:fg.z+(Math.random()*2-1)*1.5}
+          : pickWp(bot);
+      }
     }
-    resolveBotCollision(bot);
+  }
+  // 2nd pass: 操舵を1ステップ進め、衝突解決した位置を反映
+  yukaUpdate(dt);
+  for (const bot of bots){
+    if (!bot.alive) continue;
+    syncBotFromVehicle(bot);
     bot.yaw += angleDelta(bot.targetYaw,bot.yaw)*Math.min(1,dt*8);
     bot.grp.position.copy(bot.pos);
     bot.grp.rotation.y=bot.yaw;
+    // フラッグ戦: NPCが敵陣の旗に到達したらそのチームの勝利をホストが報告
+    if (!pvpBotFlagCaptured && pvp.gameType==="flag" && bot.team && pvp.socket){
+      const fg=pvpBotFlagGoal(bot);
+      if (fg && Math.hypot(bot.pos.x-fg.x, bot.pos.z-fg.z)<1.4){
+        pvpBotFlagCaptured=true;
+        pvp.socket.emit("game:botFlagCapture", {team:bot.team});
+      }
+    }
   }
 }
+/* フラッグ戦でこのNPCが狙うべき敵陣の旗（赤チーム→ENEMY_FLAG(青陣地)、青チーム→PLAYER_FLAG(赤陣地)） */
+function pvpBotFlagGoal(bot){
+  if (pvp.gameType!=="flag" || !bot.team) return null;
+  return bot.team==="red" ? ENEMY_FLAG : PLAYER_FLAG;
+}
+let pvpBotFlagCaptured=false;   // 1試合1回だけ報告（多重emit防止。試合開始時にリセット）
 export function onPvpBotHit(bot, shooterId){
   bot.alive=false; bot.fallT=0;
   spawnParticles(bot.grp.position, 0xffffff, 5, 1.4);
@@ -358,7 +386,7 @@ export function pvpStartMatch({players, gameType, npcCount, npcDiff, npcCountRed
   pvp.pendingNpcCount = npcCount||0; pvp.pendingNpcDiff = npcDiff||"normal";
   pvp.pendingNpcCountRed = npcCountRed||0; pvp.pendingNpcDiffRed = npcDiffRed||"normal";
   pvp.pendingNpcCountBlue = npcCountBlue||0; pvp.pendingNpcDiffBlue = npcDiffBlue||"normal";
-  pvpMyKills=0; pvpMyDeaths=0;
+  pvpMyKills=0; pvpMyDeaths=0; pvpBotFlagCaptured=false;
   $("pvpLobby").classList.remove("show");
   S.mode="pvp";
   applyMode();
