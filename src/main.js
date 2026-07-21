@@ -15,9 +15,11 @@ import {
 import { updateParticles } from "./effects.js";
 import { updateTargets, onTargetHit, startChallenge, updateChallenge } from "./targets.js";
 import {
-  gun, gunProcedural, GUN_ADS, loadGunModel, enterSightCal, exitSightCal, sightCalRefresh,
+  gun, gunProcedural, GUN_ADS, GUN_HIP, loadGunModel, enterSightCal, exitSightCal, sightCalRefresh,
   applySightCalibration, loadSightCalib, currentMuzzleLocal, muzzleInGunLocal, updateOrbitCamera,
   enterOrbitView, exitOrbitView, updateGun, wireSightCalUI, muzzleMarker, MUZZLE_OFFSET,
+  gunCorrected, FRONT_LOCAL, REAR_LOCAL, ADS_FOV, MUZZLE_LOCAL_MODEL, AIM_PX_X, AIM_PX_Y,
+  toggleSightCalWalk, enterSightCalWalk, exitSightCalWalk, applyGunHip,
 } from "./gun.js";
 import { updatePlayer, tryShoot, updateAmmoHUD, wireInput } from "./player.js";
 import {
@@ -61,6 +63,11 @@ window.__game={S, weapon, player, bbPool, targets, bots, spawnBB, simulate2D, so
   sightCal, enterSightCal, exitSightCal, sightCalRefresh, applySightCalibration,
   loadSightCalib, muzzleMarker, muzzleInGunLocal, MUZZLE_OFFSET, currentMuzzleLocal, tryShoot,
   sightCalOrbit, enterOrbitView, exitOrbitView, updateOrbitCamera,
+  toggleSightCalWalk, enterSightCalWalk, exitSightCalWalk, applyGunHip, GUN_HIP,
+  get FRONT_LOCAL(){return FRONT_LOCAL;}, get REAR_LOCAL(){return REAR_LOCAL;},
+  get gunCorrected(){return gunCorrected;}, get ADS_FOV(){return ADS_FOV;},
+  get MUZZLE_LOCAL_MODEL(){return MUZZLE_LOCAL_MODEL;},
+  get AIM_PX_X(){return AIM_PX_X;}, get AIM_PX_Y(){return AIM_PX_Y;},
   EDIT_AREA, FIELD, exportCustomMap, importCustomMapData, saveCustomMap,
   onBotHit, endMatch, ENEMY_FLAG, PLAYER_FLAG,
   stepN:(n)=>{ for(let i=0;i<n;i++) stepBBs(PHYS_DT); },
@@ -86,7 +93,12 @@ function loop(){
   RT.gNow=now;
 
   if (sightCal.active){
-    updateOrbitCamera();
+    if (sightCal.walk){
+      updatePlayer(dt);   // WASD移動サブモード（腰だめ描写で保持位置を確認）
+      updateGun(dt);
+    } else {
+      updateOrbitCamera();
+    }
     weapon.cooldown=Math.max(0,weapon.cooldown-dt);
     if (RT.firing && weapon.mode==="FULL") tryShoot();
     RT.physAcc+=dt;

@@ -10,7 +10,11 @@
 <body>
 
 <div id="hud">
-  <div id="crosshair"><div class="ring"></div><div class="dot"></div></div>
+  <div id="crosshair">
+    <div class="bar top"></div><div class="bar bottom"></div>
+    <div class="bar left"></div><div class="bar right"></div>
+    <div class="ring"></div>
+  </div>
   <div id="hitmarker"></div>
   <div id="hitinfo"></div>
   <div id="centerMsg"></div>
@@ -90,6 +94,21 @@
       <input type="number" id="calFovNum" min="5" max="100" step="0.5" value="50">
     </div>
   </div>
+  <div class="sub" style="margin:14px 0 2px">クロスヘア（照準表示）のサイズ</div>
+  <div class="row">
+    <label>十字サイズ <b id="calCrossSizeVal">14px</b></label>
+    <div class="sliderLine">
+      <input type="range" id="calCrossSize" min="0" max="40" step="1" value="14">
+      <input type="number" id="calCrossSizeNum" min="0" max="40" step="1" value="14">
+    </div>
+  </div>
+  <div class="row">
+    <label>丸サイズ <b id="calCircleSizeVal">0px</b></label>
+    <div class="sliderLine">
+      <input type="range" id="calCircleSize" min="0" max="40" step="1" value="0">
+      <input type="number" id="calCircleSizeNum" min="0" max="40" step="1" value="0">
+    </div>
+  </div>
   <div class="sub" style="margin:14px 0 2px">
     照準方向のズレ（ゼロイン調整） ｜ <b>この十字の方向へBB弾が実際に発射されます</b>
     （画面中心＝ふつうの照準。ここをずらすと、見た目の照準点と着弾方向がずれます）
@@ -130,7 +149,34 @@
       <input type="number" id="calMuzzleZNum" min="-0.8" max="0.8" step="0.001" value="0">
     </div>
   </div>
+  <div class="sub" style="margin:14px 0 2px">
+    銃の保持位置（腰だめ時の描写位置） ｜ <b>「🚶 WASD移動」中に見た目を確認しながら調整できます</b>
+  </div>
+  <div class="row">
+    <label>保持 X（左右） <b id="calHipXVal">0.220m</b></label>
+    <div class="sliderLine">
+      <input type="range" id="calHipX" min="-0.8" max="0.8" step="0.005" value="0.22">
+      <input type="number" id="calHipXNum" min="-0.8" max="0.8" step="0.005" value="0.22">
+    </div>
+  </div>
+  <div class="row">
+    <label>保持 Y（上下） <b id="calHipYVal">-0.220m</b></label>
+    <div class="sliderLine">
+      <input type="range" id="calHipY" min="-0.8" max="0.8" step="0.005" value="-0.22">
+      <input type="number" id="calHipYNum" min="-0.8" max="0.8" step="0.005" value="-0.22">
+    </div>
+  </div>
+  <div class="row">
+    <label>保持 Z（前後） <b id="calHipZVal">-0.480m</b></label>
+    <div class="sliderLine">
+      <input type="range" id="calHipZ" min="-1" max="0.2" step="0.005" value="-0.48">
+      <input type="number" id="calHipZNum" min="-1" max="0.2" step="0.005" value="-0.48">
+    </div>
+  </div>
   <div class="sub" style="margin:6px 0">左クリックで試射 ｜ 右ドラッグでマズル周りを自由に回転、ホイールで拡大縮小</div>
+  <div class="btnRow">
+    <button id="sightCalWalkToggle">🚶 WASD移動で確認</button>
+  </div>
   <div class="btnRow">
     <button id="sightCalOrbitToggle">🔄 自由視点でマズル確認</button>
   </div>

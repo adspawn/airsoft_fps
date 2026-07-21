@@ -89,9 +89,33 @@ export function applySightCalibration(pitchDeg,yawDeg,rollDeg,fovDeg=50){
 export function loadSightCalib(){
   try{ return JSON.parse(localStorage.getItem(S_CAL_KEY)||"null"); }catch(e){ return null; }
 }
-export function saveSightCalib(pitchDeg,yawDeg,rollDeg,crossX,crossY,fovDeg,muzzleX,muzzleY,muzzleZ){
-  localStorage.setItem(S_CAL_KEY,
-    JSON.stringify({pitchDeg,yawDeg,rollDeg,crossX,crossY,fovDeg,muzzleX,muzzleY,muzzleZ}));
+export function saveSightCalib(o){
+  localStorage.setItem(S_CAL_KEY, JSON.stringify(o));
+}
+/* HUDクロスヘア(#crosshair)の十字の長さ・丸の半径をCSSカスタムプロパティ経由で反映 */
+export function applyCrosshairSize(crossSize, circleSize){
+  const el=$("crosshair");
+  if (!el) return;
+  el.style.setProperty("--len", (crossSize!=null?crossSize:14)+"px");
+  el.style.setProperty("--r", (circleSize!=null?circleSize:0)+"px");
+}
+/* 銃の腰だめ描写位置(GUN_HIP)を反映（updateGunが毎フレームこの値を参照する） */
+export function applyGunHip(x, y, z){
+  GUN_HIP.set(x!=null?x:0.22, y!=null?y:-0.22, z!=null?z:-0.48);
+}
+// クロスヘアのサイズ・保持位置は銃モデル(GLB)の読込みを待たず、起動時に即座に反映する
+{
+  const savedCross = loadSightCalib();
+  if (savedCross){
+    sightCal.crossSize = savedCross.crossSize!=null ? savedCross.crossSize : 14;
+    sightCal.circleSize = savedCross.circleSize!=null ? savedCross.circleSize : 0;
+    if (savedCross.hipX!=null) sightCal.hipX = savedCross.hipX;
+    if (savedCross.hipY!=null) sightCal.hipY = savedCross.hipY;
+    if (savedCross.hipZ!=null) sightCal.hipZ = savedCross.hipZ;
+  }
+  applyCrosshairSize(sightCal.crossSize, sightCal.circleSize);
+  applyGunHip(sightCal.hipX, sightCal.hipY, sightCal.hipZ);
+  gun.position.copy(GUN_HIP);
 }
 /* マズル先端からの微調整オフセット（MUZZLE_LOCAL_MODELと同じ「scale適用済み」座標系での加算）。
    サイト調整モードで見えるマーカー球の位置とBB弾の実発射位置の両方に反映される。
@@ -166,7 +190,8 @@ export function loadGunModel(GLTFLoader){
 
     // 保存済みキャリブレーション値があれば復元、なければ無補正(0,0,0)・中央十字・50°で開始
     const saved = loadSightCalib();
-    const init = saved || {pitchDeg:0, yawDeg:0, rollDeg:0, crossX:0, crossY:0, fovDeg:50, muzzleX:0, muzzleY:0, muzzleZ:0};
+    const init = saved || {pitchDeg:0, yawDeg:0, rollDeg:0, crossX:0, crossY:0, fovDeg:50, muzzleX:0, muzzleY:0, muzzleZ:0,
+      crossSize:14, circleSize:0};
     applySightCalibration(init.pitchDeg, init.yawDeg, init.rollDeg, init.fovDeg||50);
     MUZZLE_OFFSET.set(init.muzzleX||0, init.muzzleY||0, init.muzzleZ||0);
     AIM_PX_X=init.crossX||0; AIM_PX_Y=init.crossY||0;
@@ -175,6 +200,10 @@ export function loadGunModel(GLTFLoader){
       sightCal.pitch=init.pitchDeg; sightCal.yaw=init.yawDeg; sightCal.roll=init.rollDeg;
       sightCal.crossX=init.crossX||0; sightCal.crossY=init.crossY||0; sightCal.fov=init.fovDeg||50;
       sightCal.muzzleX=init.muzzleX||0; sightCal.muzzleY=init.muzzleY||0; sightCal.muzzleZ=init.muzzleZ||0;
+      sightCal.crossSize=init.crossSize!=null?init.crossSize:14; sightCal.circleSize=init.circleSize!=null?init.circleSize:0;
+      sightCal.hipX=init.hipX!=null?init.hipX:0.22; sightCal.hipY=init.hipY!=null?init.hipY:-0.22; sightCal.hipZ=init.hipZ!=null?init.hipZ:-0.48;
+      applyCrosshairSize(sightCal.crossSize, sightCal.circleSize);
+      applyGunHip(sightCal.hipX, sightCal.hipY, sightCal.hipZ);
     }
 
     window.__gunModelBox = new THREE.Box3().setFromObject(corrected);   // デバッグ検証用
@@ -205,6 +234,7 @@ export function updateOrbitCamera(){
 }
 export function enterOrbitView(){
   if (sightCalOrbit.active) return;
+  if (sightCal.walk) exitSightCalWalk();   // 移動モードと自由視点は排他
   camera.updateMatrixWorld(true);
   const wp=new THREE.Vector3(), wq=new THREE.Quaternion(), ws=new THREE.Vector3();
   gun.matrixWorld.decompose(wp,wq,ws);
@@ -231,14 +261,18 @@ export function exitOrbitView(){
 }
 export function sightCalRefresh(){
   applySightCalibration(sightCal.pitch, sightCal.yaw, sightCal.roll, sightCal.fov);
-  if (!sightCalOrbit.active){
+  applyGunHip(sightCal.hipX, sightCal.hipY, sightCal.hipZ);
+  // 通常の調整ビューはADS姿勢固定。自由視点(orbit)とWASD移動(walk)中はそれぞれの更新に任せる
+  if (!sightCalOrbit.active && !sightCal.walk){
     gun.position.copy(GUN_ADS);
     gun.rotation.set(0,0,0);
   }
-  camera.fov=sightCal.fov; camera.updateProjectionMatrix();
+  // WASD移動中は通常FOV(75)を updateGun に任せる。それ以外は倍率プレビュー値を適用
+  if (!sightCal.walk){ camera.fov=sightCal.fov; camera.updateProjectionMatrix(); }
   MUZZLE_OFFSET.set(sightCal.muzzleX, sightCal.muzzleY, sightCal.muzzleZ);
   updateMuzzleMarker();
   AIM_PX_X=sightCal.crossX; AIM_PX_Y=sightCal.crossY;   // 実際の発射方向に反映（ゼロイン調整）
+  applyCrosshairSize(sightCal.crossSize, sightCal.circleSize);
   if (sightCalOrbit.active) updateOrbitCamera();
   $("calPitchVal").textContent=sightCal.pitch.toFixed(2)+"°";
   $("calYawVal").textContent=sightCal.yaw.toFixed(2)+"°";
@@ -249,10 +283,17 @@ export function sightCalRefresh(){
   $("calMuzzleXVal").textContent=sightCal.muzzleX.toFixed(3)+"m";
   $("calMuzzleYVal").textContent=sightCal.muzzleY.toFixed(3)+"m";
   $("calMuzzleZVal").textContent=sightCal.muzzleZ.toFixed(3)+"m";
+  $("calCrossSizeVal").textContent=sightCal.crossSize+"px";
+  $("calCircleSizeVal").textContent=sightCal.circleSize+"px";
+  $("calHipXVal").textContent=sightCal.hipX.toFixed(3)+"m";
+  $("calHipYVal").textContent=sightCal.hipY.toFixed(3)+"m";
+  $("calHipZVal").textContent=sightCal.hipZ.toFixed(3)+"m";
   // スライダー・数値入力の両方を現在値に同期（片方を操作してももう片方に反映される）
   for (const [id,val] of [["calPitch",sightCal.pitch],["calYaw",sightCal.yaw],["calRoll",sightCal.roll],
       ["calCrossX",sightCal.crossX],["calCrossY",sightCal.crossY],["calFov",sightCal.fov],
-      ["calMuzzleX",sightCal.muzzleX],["calMuzzleY",sightCal.muzzleY],["calMuzzleZ",sightCal.muzzleZ]]){
+      ["calMuzzleX",sightCal.muzzleX],["calMuzzleY",sightCal.muzzleY],["calMuzzleZ",sightCal.muzzleZ],
+      ["calCrossSize",sightCal.crossSize],["calCircleSize",sightCal.circleSize],
+      ["calHipX",sightCal.hipX],["calHipY",sightCal.hipY],["calHipZ",sightCal.hipZ]]){
     if (document.activeElement!==$(id)) $(id).value=val;
     if (document.activeElement!==$(id+"Num")) $(id+"Num").value=val;
   }
@@ -275,7 +316,38 @@ export function enterSightCal(){
   camera.rotation.set(0,0,0);
   sightCalRefresh();
 }
+/* WASD移動サブモード: ポインタロックは使わず（スライダーをカーソルで操作できるように）、
+   WASDで移動・右ドラッグで視点回転・左クリックで試射。銃は腰だめ描写(GUN_HIP)で表示され、
+   保持位置スライダーを動かしながら見た目を確認できる。射撃練習場の原点にリセットして開始。 */
+export function enterSightCalWalk(){
+  exitOrbitView();
+  sightCal.walk=true; sightCal.walkDragging=false;
+  RT.ads=false; RT.firing=false;
+  document.body.classList.add("sightcal-walk");
+  $("sightCalWalkToggle").classList.add("active");
+  $("sightCalWalkToggle").textContent="🛑 WASD移動を終了";
+  $("sightCalCrosshair").classList.remove("show");   // 移動中は照準ズレ用の青十字は隠す
+  player.pos.set(0,0,0); player.vel.set(0,0,0);
+  player.yaw=0; player.pitch=0; player.lean=0;
+  camera.fov=75; camera.updateProjectionMatrix();
+}
+export function exitSightCalWalk(){
+  sightCal.walk=false; sightCal.walkDragging=false;
+  document.body.classList.remove("sightcal-walk");
+  $("sightCalWalkToggle").classList.remove("active");
+  $("sightCalWalkToggle").textContent="🚶 WASD移動で確認";
+  if (sightCal.active){
+    $("sightCalCrosshair").classList.add("show");
+    camera.position.set(0,1.6,0);
+    camera.rotation.set(0,0,0);
+    sightCalRefresh();   // 調整ビュー（ADS固定）に復帰
+  }
+}
+export function toggleSightCalWalk(){
+  if (sightCal.walk) exitSightCalWalk(); else enterSightCalWalk();
+}
 export function exitSightCal(){
+  if (sightCal.walk) exitSightCalWalk();
   exitOrbitView();   // gunがシーン直下に付け替わったままにならないよう必ず復帰させる
   sightCal.active=false;
   RT.firing=false;
@@ -291,6 +363,7 @@ export function wireSightCalUI(){
   $("sightCalOrbitToggle").addEventListener("click",()=>{
     if (sightCalOrbit.active) exitOrbitView(); else enterOrbitView();
   });
+  $("sightCalWalkToggle").addEventListener("click", toggleSightCalWalk);
   /* スライダー・数値入力を同じキーに双方向バインド */
   function bindCal(key, id){
     const onInput=(v)=>{ if(!isNaN(v)){ sightCal[key]=v; sightCalRefresh(); } };
@@ -300,25 +373,31 @@ export function wireSightCalUI(){
   bindCal("pitch","calPitch"); bindCal("yaw","calYaw"); bindCal("roll","calRoll");
   bindCal("crossX","calCrossX"); bindCal("crossY","calCrossY"); bindCal("fov","calFov");
   bindCal("muzzleX","calMuzzleX"); bindCal("muzzleY","calMuzzleY"); bindCal("muzzleZ","calMuzzleZ");
+  bindCal("crossSize","calCrossSize"); bindCal("circleSize","calCircleSize");
+  bindCal("hipX","calHipX"); bindCal("hipY","calHipY"); bindCal("hipZ","calHipZ");
+  /* 現在のサイト調整値をJSON化（保存・書き出しで共用） */
+  const currentCalib=()=>({
+    pitchDeg:sightCal.pitch, yawDeg:sightCal.yaw, rollDeg:sightCal.roll,
+    crossX:sightCal.crossX, crossY:sightCal.crossY, fovDeg:sightCal.fov,
+    muzzleX:sightCal.muzzleX, muzzleY:sightCal.muzzleY, muzzleZ:sightCal.muzzleZ,
+    crossSize:sightCal.crossSize, circleSize:sightCal.circleSize,
+    hipX:sightCal.hipX, hipY:sightCal.hipY, hipZ:sightCal.hipZ,
+  });
   $("sightCalReset").addEventListener("click",()=>{
     sightCal.pitch=0; sightCal.yaw=0; sightCal.roll=0;
     sightCal.crossX=0; sightCal.crossY=0; sightCal.fov=50;
     sightCal.muzzleX=0; sightCal.muzzleY=0; sightCal.muzzleZ=0;
+    sightCal.crossSize=14; sightCal.circleSize=0;
+    sightCal.hipX=0.22; sightCal.hipY=-0.22; sightCal.hipZ=-0.48;
     sightCalRefresh();
   });
   $("sightCalApply").addEventListener("click",()=>{
-    saveSightCalib(sightCal.pitch, sightCal.yaw, sightCal.roll,
-      sightCal.crossX, sightCal.crossY, sightCal.fov,
-      sightCal.muzzleX, sightCal.muzzleY, sightCal.muzzleZ);
+    saveSightCalib(currentCalib());
     $("sightCalSaved").textContent="保存しました（次回起動時も自動適用されます）";
     setTimeout(()=>{ $("sightCalSaved").textContent=""; },2500);
   });
   $("sightCalExport").addEventListener("click",()=>{
-    const data={
-      pitchDeg:sightCal.pitch, yawDeg:sightCal.yaw, rollDeg:sightCal.roll,
-      crossX:sightCal.crossX, crossY:sightCal.crossY, fovDeg:sightCal.fov,
-      muzzleX:sightCal.muzzleX, muzzleY:sightCal.muzzleY, muzzleZ:sightCal.muzzleZ,
-    };
+    const data=currentCalib();
     const blob=new Blob([JSON.stringify(data,null,1)],{type:"application/json"});
     const url=URL.createObjectURL(blob);
     const a=document.createElement("a");
@@ -340,6 +419,8 @@ export function wireSightCalUI(){
         sightCal.pitch=+d.pitchDeg||0; sightCal.yaw=+d.yawDeg||0; sightCal.roll=+d.rollDeg||0;
         sightCal.crossX=+d.crossX||0; sightCal.crossY=+d.crossY||0; sightCal.fov=+d.fovDeg||50;
         sightCal.muzzleX=+d.muzzleX||0; sightCal.muzzleY=+d.muzzleY||0; sightCal.muzzleZ=+d.muzzleZ||0;
+        sightCal.crossSize=d.crossSize!=null?+d.crossSize:14; sightCal.circleSize=d.circleSize!=null?+d.circleSize:0;
+        sightCal.hipX=d.hipX!=null?+d.hipX:0.22; sightCal.hipY=d.hipY!=null?+d.hipY:-0.22; sightCal.hipZ=d.hipZ!=null?+d.hipZ:-0.48;
         sightCalRefresh();
         $("sightCalSaved").textContent="JSONを読み込みました（「確定・保存」を押すと次回も適用されます）";
         setTimeout(()=>{ $("sightCalSaved").textContent=""; },3200);

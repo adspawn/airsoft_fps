@@ -96,6 +96,91 @@ function segHitSphere(p0, p1, cx, cy, cz, r){
   return dx*dx+dy*dy+dz*dz < r*r;
 }
 
+/* ---- 腰だめ撃ち用: カメラ中心レイの着弾点をレイキャストで求める（動的ゼロイン） ----
+   マズルはカメラから左右にオフセットしているため、カメラ正面へ平行発射すると
+   クロスヘア位置に着弾しない（視差）。カメラ中心から前方へレイを飛ばし、最初に当たる
+   障害物/地面/的/NPCまでの距離を着弾点として、その点へマズルから向けて撃つことで
+   照準どおりに飛ばす。 */
+const HIP_MAX_AIM_DIST = 120;   // 何にも当たらない場合の既定収束距離（空撃ち等）
+const HIP_MIN_AIM_DIST = 2;     // 至近すぎる収束を防ぐ下限
+/* レイ vs AABB（スラブ法）。当たらなければ Infinity、当たれば入口までの距離tを返す */
+function rayAABB(ox,oy,oz, dx,dy,dz, mn, mx){
+  let t0=0, t1=Infinity;
+  // X
+  if (Math.abs(dx)<1e-8){ if (ox<mn.x||ox>mx.x) return Infinity; }
+  else { let a=(mn.x-ox)/dx, b=(mx.x-ox)/dx; if(a>b){const s=a;a=b;b=s;} t0=Math.max(t0,a); t1=Math.min(t1,b); if(t0>t1) return Infinity; }
+  // Y
+  if (Math.abs(dy)<1e-8){ if (oy<mn.y||oy>mx.y) return Infinity; }
+  else { let a=(mn.y-oy)/dy, b=(mx.y-oy)/dy; if(a>b){const s=a;a=b;b=s;} t0=Math.max(t0,a); t1=Math.min(t1,b); if(t0>t1) return Infinity; }
+  // Z
+  if (Math.abs(dz)<1e-8){ if (oz<mn.z||oz>mx.z) return Infinity; }
+  else { let a=(mn.z-oz)/dz, b=(mx.z-oz)/dz; if(a>b){const s=a;a=b;b=s;} t0=Math.max(t0,a); t1=Math.min(t1,b); if(t0>t1) return Infinity; }
+  return t0>1e-4 ? t0 : Infinity;
+}
+/* レイ vs 球（dirは正規化済み前提）。当たらなければ Infinity */
+function raySphere(ox,oy,oz, dx,dy,dz, cx,cy,cz, r){
+  const mx=ox-cx, my=oy-cy, mz=oz-cz;
+  const b=mx*dx+my*dy+mz*dz;
+  const c=mx*mx+my*my+mz*mz - r*r;
+  if (c>0 && b>0) return Infinity;
+  const disc=b*b-c;
+  if (disc<0) return Infinity;
+  const t=-b-Math.sqrt(disc);
+  return t>1e-4 ? t : Infinity;
+}
+export function resolveHipAimPoint(camPos, camDir, out){
+  const ox=camPos.x, oy=camPos.y, oz=camPos.z;
+  const dx=camDir.x, dy=camDir.y, dz=camDir.z;
+  let best = HIP_MAX_AIM_DIST;
+  // 障害物（壁・木箱・バリケード・バリケード物）
+  for (const o of obstacles){
+    const t = rayAABB(ox,oy,oz,dx,dy,dz,o.min,o.max);
+    if (t<best) best=t;
+  }
+  // 地面（y=0）
+  if (dy<0){ const tg=-oy/dy; if (tg>0 && tg<best) best=tg; }
+  // 射撃練習の的
+  if (S.mode==="range"){
+    for (const tg of targets){
+      if (!tg.alive) continue;
+      for (const zn of tg.zones){
+        const t=raySphere(ox,oy,oz,dx,dy,dz, zn.world.x,zn.world.y,zn.world.z, zn.r);
+        if (t<best) best=t;
+      }
+    }
+  }
+  // NPC（対戦・PVPホストのローカルbots）
+  if (S.mode==="vs" || S.mode==="pvp"){
+    for (const bt of bots){
+      if (!bt.alive) continue;
+      for (const sph of BOT_SPHERES){
+        const t=raySphere(ox,oy,oz,dx,dy,dz, bt.pos.x, bt.pos.y+sph[0], bt.pos.z, sph[1]);
+        if (t<best) best=t;
+      }
+    }
+  }
+  // PVP: 他プレイヤー・非ホスト側のリモートNPC
+  if (S.mode==="pvp"){
+    for (const rp of pvp.players.values()){
+      if (!rp.alive) continue;
+      for (const sph of BOT_SPHERES){
+        const t=raySphere(ox,oy,oz,dx,dy,dz, rp.pos.x, rp.pos.y+sph[0], rp.pos.z, sph[1]);
+        if (t<best) best=t;
+      }
+    }
+    for (const rb of pvp.bots.values()){
+      if (!rb.alive) continue;
+      for (const sph of BOT_SPHERES){
+        const t=raySphere(ox,oy,oz,dx,dy,dz, rb.pos.x, rb.pos.y+sph[0], rb.pos.z, sph[1]);
+        if (t<best) best=t;
+      }
+    }
+  }
+  best = Math.min(HIP_MAX_AIM_DIST, Math.max(HIP_MIN_AIM_DIST, best));
+  out.set(ox+dx*best, oy+dy*best, oz+dz*best);
+  return out;
+}
+
 /* 被弾時のゲームロジック（NPC/プレイヤー/PVP/ターゲット）は main.js が
    全モジュール読込み後に registerHitHandlers() で配線する */
 let H = {

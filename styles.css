@@ -12,14 +12,21 @@ canvas{display:block}
 #hud{position:fixed;inset:0;pointer-events:none;display:none}
 .locked #hud{display:block}
 
-#crosshair{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)}
-#crosshair .dot{width:4px;height:4px;border-radius:50%;background:#fff;
-  box-shadow:0 0 3px rgba(0,0,0,.8);margin:auto}
+#crosshair{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:2px;height:2px;--gap:4px;--len:14px;--r:0px}
+#crosshair .bar{position:absolute;background:#fff;box-shadow:0 0 3px rgba(0,0,0,.8);
+  transition:opacity .12s}
+#crosshair .bar.top,#crosshair .bar.bottom{left:50%;width:2px;height:var(--len);transform:translateX(-50%)}
+#crosshair .bar.left,#crosshair .bar.right{top:50%;width:var(--len);height:2px;transform:translateY(-50%)}
+#crosshair .bar.top{bottom:var(--gap)}
+#crosshair .bar.bottom{top:var(--gap)}
+#crosshair .bar.left{right:var(--gap)}
+#crosshair .bar.right{left:var(--gap)}
 #crosshair .ring{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
-  width:26px;height:26px;border:1px solid rgba(255,255,255,.55);border-radius:50%;
-  transition:width .12s,height .12s,opacity .12s}
-.ads #crosshair .ring{opacity:0}
-.ads #crosshair .dot{opacity:.0}
+  width:calc(var(--r) * 2);height:calc(var(--r) * 2);border-radius:50%;
+  border:1px solid rgba(255,255,255,.55);box-shadow:0 0 3px rgba(0,0,0,.5);
+  transition:opacity .12s,width .1s,height .1s}
+.ads #crosshair .bar,.ads #crosshair .ring{opacity:0}
 
 #hitmarker{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
   width:34px;height:34px;opacity:0}
@@ -136,6 +143,14 @@ select{background:#1a2230;color:var(--text);border:1px solid rgba(255,255,255,.1
 #sightCalExit{background:transparent;border:1px solid rgba(255,255,255,.25)!important;color:var(--text)}
 #sightCalOrbitToggle{background:transparent;border:1px solid rgba(255,255,255,.25)!important;color:var(--text)}
 #sightCalOrbitToggle.active{background:#2e8bff;border-color:#2e8bff!important;color:#0a1420}
+#sightCalWalkToggle{background:transparent;border:1px solid rgba(255,255,255,.25)!important;color:var(--text)}
+#sightCalWalkToggle.active{background:var(--ok);border-color:var(--ok)!important;color:#0a1a0f}
+/* WASD移動モード中はスライダー操作のためカーソルを表示し、パネルはクリック可能にする */
+body.sightcal-walk #sightCalPanel{opacity:.92}
+body.sightcal-walk{cursor:default}
+/* WASD移動モード中はHUDのクロスヘアだけ表示（ポインタロックしないため.lockedが付かない） */
+body.sightcal-walk #hud{display:block}
+body.sightcal-walk #hud > :not(#crosshair){display:none}
 #sightCalReadout{margin-top:10px;font-size:11px;line-height:1.6;color:var(--dim);
   background:rgba(0,0,0,.3);border-radius:8px;padding:8px;user-select:text;word-break:break-all}
 #sightCalSaved{margin-top:8px;font-size:11px;color:var(--ok);height:14px}

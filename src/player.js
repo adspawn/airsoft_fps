@@ -5,7 +5,7 @@ import { THREE, S, $, camera, renderer, RT, UP, player, weapon, keys, clearKeys,
   MAG_SIZE, EYE_H, CROUCH_H, currentBounds, obstacles, pvp, sightCal } from "./state.js";
 import { simulate2D, solveOptimalSpin } from "./physics.js";
 import { sndClick, sndShot, sndReload, audio } from "./sound.js";
-import { spawnBB } from "./bb.js";
+import { spawnBB, resolveHipAimPoint } from "./bb.js";
 import { gun, gunCorrected, MUZZLE_LOCAL, MUZZLE_LOCAL_MODEL, muzzleInGunLocal,
   AIM_PX_X, AIM_PX_Y } from "./gun.js";
 
@@ -118,7 +118,8 @@ export function updatePlayer(dt){
    射撃
    ============================================================ */
 const _dir=new THREE.Vector3(), _right=new THREE.Vector3(), _spawn=new THREE.Vector3(),
-      _up2=new THREE.Vector3(), _leanUp=new THREE.Vector3();
+      _up2=new THREE.Vector3(), _leanUp=new THREE.Vector3(),
+      _camDir=new THREE.Vector3(), _aimPt=new THREE.Vector3();
 /* 円錐拡散をdirに適用 */
 export function applySpread(dir,deg){
   const sp=deg*Math.PI/180;
@@ -135,20 +136,29 @@ export function tryShoot(){
   }
   weapon.cooldown = weapon.mode==="FULL"? 1/S.cycle : 0.09;
 
-  // 照準方向のズレ(ゼロイン調整): アイアンサイト越しの補正なのでADS時のみ適用。
-  // 腰だめ撃ち（非ADS）は通常の画面中心クロスヘア（丸と点）どおりカメラ正面へ飛ばす
+  // BB弾はマズル先端（実測値+微調整オフセット）から発射。読込み前はプロシージャル銃の暫定位置。
+  // 発射方向は始点(マズル)に依存する場合があるので、方向を決める前にマズルを確定させる
+  if (gunCorrected && MUZZLE_LOCAL_MODEL) _spawn.copy(muzzleInGunLocal()).applyMatrix4(gun.matrixWorld);
+  else _spawn.copy(MUZZLE_LOCAL).applyMatrix4(gun.matrixWorld);
+
   if ((RT.ads||sightCal.active) && (AIM_PX_X||AIM_PX_Y)){
+    // ADS/サイト調整: 照準方向のズレ(ゼロイン調整)をそのまま適用（従来どおり）
     const ndcX=(2*AIM_PX_X)/innerWidth, ndcY=-(2*AIM_PX_Y)/innerHeight;
     _dir.set(ndcX,ndcY,0.5).unproject(camera).sub(camera.position).normalize();
+  } else if (!RT.ads && !sightCal.active){
+    // 腰だめ撃ち: Raycast動的ゼロイン。カメラ中心のレイが最初に当たる点(着弾点)を求め、
+    // マズルからその点へ向けて発射する（マズルの左右オフセットによる視差を補正し、
+    // クロスヘアどおりに着弾させる）
+    camera.getWorldDirection(_camDir);
+    resolveHipAimPoint(camera.position, _camDir, _aimPt);
+    _dir.subVectors(_aimPt, _spawn).normalize();
   } else {
+    // ADS/サイト調整で照準ズレ無し: カメラ正面へ
     camera.getWorldDirection(_dir);
   }
   // 拡散（ADS・静止・しゃがみで向上）
   const moving=player.vel.length()>0.5;
   applySpread(_dir,(RT.ads?0.10:0.45)*(moving?1.8:1)*(player.crouch?0.7:1));
-  // BB弾はマズル先端（実測値+微調整オフセット）から発射。読込み前はプロシージャル銃の暫定位置
-  if (gunCorrected && MUZZLE_LOCAL_MODEL) _spawn.copy(muzzleInGunLocal()).applyMatrix4(gun.matrixWorld);
-  else _spawn.copy(MUZZLE_LOCAL).applyMatrix4(gun.matrixWorld);
   // リーン中は銃が傾いている分だけホップアップの回転軸も傾け、弾道が斜めに揚力を受けるようにする
   _leanUp.copy(UP);
   if (player.lean) _leanUp.applyAxisAngle(_dir, player.lean*LEAN_MAX_ROLL);
@@ -273,6 +283,7 @@ export function wireInput({ edit, editPlace, editDelete, makeGhost, updateEditHU
       if (e.target.closest("#sightCalPanel")) return;   // パネル操作は発射・視点操作に影響しない
       if (e.button===0){ RT.firing=true; if(weapon.mode==="SEMI") tryShoot(); }
       if (e.button===2 && sightCalOrbit.active) sightCalOrbit.dragging=true;
+      if (e.button===2 && sightCal.walk) sightCal.walkDragging=true;   // WASD移動中は右ドラッグで視点回転
       return;
     }
     if (!RT.locked) return;
@@ -287,7 +298,7 @@ export function wireInput({ edit, editPlace, editDelete, makeGhost, updateEditHU
   });
   document.addEventListener("mouseup",e=>{
     if (e.button===0) RT.firing=false;
-    if (e.button===2){ RT.ads=false; sightCalOrbit.dragging=false; }
+    if (e.button===2){ RT.ads=false; sightCalOrbit.dragging=false; sightCal.walkDragging=false; }
   });
   document.addEventListener("contextmenu",e=>e.preventDefault());
   document.addEventListener("wheel",e=>{
@@ -310,6 +321,11 @@ export function wireInput({ edit, editPlace, editDelete, makeGhost, updateEditHU
       sightCalOrbit.yaw -= e.movementX*0.006;
       sightCalOrbit.pitch = THREE.MathUtils.clamp(sightCalOrbit.pitch - e.movementY*0.006, -1.4, 1.4);
       updateOrbitCamera();
+      return;
+    }
+    if (sightCal.active && sightCal.walkDragging){   // WASD移動中: 右ドラッグで視点回転（ポインタロック不使用）
+      player.yaw   -= e.movementX*0.003;
+      player.pitch = THREE.MathUtils.clamp(player.pitch - e.movementY*0.003, -Math.PI/2+.01, Math.PI/2-.01);
       return;
     }
     if (!RT.locked) return;
