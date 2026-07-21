@@ -176,13 +176,7 @@ body.sightcal-walk #hud > :not(#crosshair){display:none}
 .pvpRow label{width:96px;font-size:13px;color:var(--dim);flex-shrink:0}
 .pvpRow input[type=text],.pvpRow input[type=number]{flex:1;background:#1a2230;color:var(--text);
   border:1px solid rgba(255,255,255,.18);border-radius:8px;padding:7px 9px;font-size:13px}
-#pvpRoomList{max-height:180px;overflow-y:auto;margin:10px 0;border-radius:8px;
-  background:rgba(0,0,0,.25)}
-.pvpRoomItem{display:flex;justify-content:space-between;align-items:center;padding:9px 12px;
-  font-size:13px;border-bottom:1px solid rgba(255,255,255,.06);cursor:pointer}
-.pvpRoomItem:hover{background:rgba(255,255,255,.06)}
-.pvpRoomItem b{color:var(--accent)}
-#pvpRoomListEmpty{padding:14px;font-size:12px;color:var(--dim);text-align:center}
+#pvpShareUrlInput{font-size:11px}
 #pvpPlayerList{margin:10px 0;border-radius:8px;background:rgba(0,0,0,.25)}
 .pvpPlayerItem{display:flex;justify-content:space-between;padding:8px 12px;font-size:13px;
   border-bottom:1px solid rgba(255,255,255,.06)}

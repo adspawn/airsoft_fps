@@ -206,14 +206,19 @@
       <input type="text" id="pvpNameInput" maxlength="16" value="プレイヤー">
     </div>
 
-    <div id="pvpRoomListView">
-      <div class="pvpRow"><label>ルーム一覧</label>
-        <button id="pvpRefreshBtn" style="flex:none;padding:6px 12px;font-size:12px;
+    <div id="pvpSetupView">
+      <div class="pvpRow"><label>コードで参加</label>
+        <input type="text" id="pvpJoinCodeInput" placeholder="room-xxxxxxx またはURL">
+        <button id="pvpJoinBtn" style="flex:none;padding:6px 12px;font-size:12px;
           border:1px solid rgba(255,255,255,.25);border-radius:7px;background:transparent;
-          color:var(--text);cursor:pointer">更新</button>
+          color:var(--text);cursor:pointer">参加</button>
       </div>
-      <div id="pvpRoomList"><div id="pvpRoomListEmpty">部屋がありません。新しく作成してください</div></div>
-      <div class="pvpRow"><label>新規ルーム名</label><input type="text" id="pvpNewRoomName" value="ルーム1"></div>
+      <div style="font-size:11px;color:var(--dim);margin:-4px 0 14px">
+        友達から届いたURLを踏んだ場合は自動で参加します。手動で参加する場合は上に部屋コード/URLを入力してください。
+      </div>
+      <div class="pvpRow" style="font-size:13px;font-weight:700;border-top:1px solid rgba(255,255,255,.12);padding-top:14px">
+        新しく部屋を作る
+      </div>
       <div class="pvpRow"><label>ゲーム種類</label>
         <div class="chips" id="pvpGameTypeChips">
           <button class="chip sel" id="pvpGameTypeBr">バトルロワイアル</button>
@@ -266,6 +271,13 @@
     <div id="pvpRoomView" style="display:none">
       <div class="pvpRow" style="font-size:15px;font-weight:700" id="pvpRoomTitle"></div>
       <div class="pvpRow" style="font-size:12px;color:var(--dim)" id="pvpRoomSettings"></div>
+      <div class="pvpRow" id="pvpShareUrlRow" style="display:none">
+        <label>招待URL</label>
+        <input type="text" id="pvpShareUrlInput" readonly>
+        <button id="pvpCopyUrlBtn" style="flex:none;padding:6px 12px;font-size:12px;
+          border:1px solid rgba(255,255,255,.25);border-radius:7px;background:transparent;
+          color:var(--text);cursor:pointer">コピー</button>
+      </div>
       <div id="pvpPlayerList"></div>
       <div class="btnRow" id="pvpResumeRow" style="display:none">
         <button id="pvpResumeBtn">🔓 試合に戻る</button>
@@ -376,7 +388,7 @@
 </div>
 
 
-<script src="/socket.io/socket.io.js"></script>
+<script src="./libs/peerjs.min.js"></script>
 <script type="importmap">
 { "imports": { "three": "./libs/three.module.min.js" } }
 </script>

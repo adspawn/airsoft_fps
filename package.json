@@ -1,7 +1,7 @@
 {
   "name": "airsoft_fps",
   "version": "1.0.0",
-  "description": "three.js製のエアソフト(電動ガン)FPSゲーム。BB弾の弾道は adspawn/bb-ballistics の物理モデルを3Dに拡張して移植。Node.js+Socket.ioによるリアルタイムPVPロビー機能つき。",
+  "description": "three.js製のエアソフト(電動ガン)FPSゲーム。BB弾の弾道は adspawn/bb-ballistics の物理モデルを3Dに拡張して移植。PeerJS(WebRTC)によるサーバーレスP2PオンラインPVP機能つき。",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -11,7 +11,7 @@
   "license": "ISC",
   "dependencies": {
     "express": "^5.2.1",
-    "socket.io": "^4.8.3",
+    "peerjs": "^1.5.5",
     "yuka": "^0.7.8"
   }
 }

@@ -233,8 +233,8 @@ export const edit={sel:"ply", o:0, props:[], ghost:null, flags:[], gx:0, gy:0, g
    オンラインPVP
    ============================================================ */
 export const pvp = {
-  socket:null, connected:false, myId:null, name:"プレイヤー",
-  currentRoom:null, roomListCache:[], inMatch:false,
+  connected:false, myId:null, name:"プレイヤー",
+  currentRoom:null, inMatch:false,
   gameType:"br", iAmHost:false, myTeam:null,
   players:new Map(),   // id -> {id,name,team,kills,deaths,alive,pos,targetPos,yaw,targetYaw,pivot,fallT}
   bots:new Map(),       // id("bot:N") -> {pivot,pos,targetPos,yaw,targetYaw,alive,fallT,team}（非ホスト側の描画用）

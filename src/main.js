@@ -30,7 +30,7 @@ import {
 import { editPlace, editDelete, editValidAt, updateEdit, exportCustomMap, importCustomMapData,
   saveCustomMap, makeGhost, updateEditHUD, wireMapEditorUI } from "./mapEditor.js";
 import {
-  pvpConnect, pvpCreateRoom, pvpJoinRoom, pvpLeaveRoom, pvpRefreshRoomList, pvpStartMatch,
+  pvpConnect, pvpCreateRoom, pvpJoinRoom, pvpLeaveRoom, pvpAutoJoinFromUrl, pvpStartMatch,
   updatePvpRemotes, updatePvpNetSend, onPvpPlayerHit, onPvpBotHit, updatePvpBots,
   updatePvpBotsNetSend, updatePvpBotsRemote, pvpApplyBotsState, updatePvpFlagCapture,
   getPvpMyKills, getPvpMyDeaths, wirePvpLobbyUI, renderPvpRoomView,
@@ -52,6 +52,9 @@ wireInput({
   edit, editPlace, editDelete, makeGhost, updateEditHUD, exportCustomMap,
   startChallenge, sightCalOrbit, updateOrbitCamera, applyMode, pvpConnect, renderPvpRoomView,
 });
+
+/* ---- URL共有型P2P: ?room=xxx が付いている場合は自動でホストへ接続する ---- */
+pvpAutoJoinFromUrl();
 
 /* ============================================================
    デバッグ用フック（コンソールから状態確認可能）
@@ -75,10 +78,10 @@ window.__game={S, weapon, player, bbPool, targets, bots, spawnBB, simulate2D, so
   setLocked:(v)=>{ RT.locked=v; }, setAds:(v)=>{ RT.ads=v; }, get ads(){return RT.ads;}, get locked(){return RT.locked;},
   get dying(){return RT.dying;}, startDeathSequence, endDeathSequence, updateDeathCam,
   get deathBodyPivot(){return getDeathBodyPivot();}, VS_ARENA, onPlayerHit,
-  pvp, pvpConnect, pvpCreateRoom, pvpJoinRoom, pvpLeaveRoom, pvpRefreshRoomList,
+  pvp, pvpConnect, pvpCreateRoom, pvpJoinRoom, pvpLeaveRoom,
   pvpStartMatch, updatePvpRemotes, updatePvpNetSend, spawnPoints, obstacles,
   updatePvpBots, updatePvpBotsNetSend, updatePvpBotsRemote, pvpApplyBotsState,
-  genRandomVsProps, genVsField, onPvpBotHit, updatePvpFlagCapture, botAI, rebuildYukaObstacles,
+  genRandomVsProps, genVsField, onPvpBotHit, onPvpPlayerHit, updatePvpFlagCapture, botAI, rebuildYukaObstacles,
   RED_PLAYER_SPAWNS, BLUE_PLAYER_SPAWNS, RED_NPC_SPAWNS, BLUE_NPC_SPAWNS,
   get pvpMyKills(){return getPvpMyKills();}, get pvpMyDeaths(){return getPvpMyDeaths();}};
 

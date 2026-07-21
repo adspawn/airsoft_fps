@@ -1,8 +1,11 @@
 /* ============================================================
-   オンラインPVP（Node.js + Socket.io）
-   物理・弾道は各クライアントでシミュレーションし、サーバーは
-   ロビー（部屋の作成/参加/準備確認/開始）と、被弾報告の中継・
-   キル数集計・リスポーン指示だけを行う（自己申告ヒット方式）。
+   オンラインPVP（PeerJS / WebRTC によるサーバーレスP2P）
+   物理・弾道は各クライアントでシミュレーションする。ロビー（部屋の作成/
+   参加/準備確認/開始）と、被弾報告の中継・キル数集計・リスポーン指示・
+   勝敗判定は「ホスト」のブラウザがすべて権威的に処理し、他プレイヤー
+   （ゲスト）とはWebRTCで直接データをやり取りする（中継サーバー不要）。
+   ゲストはホストとのみ接続し（スター型トポロジー）、ゲスト間で共有すべき
+   情報（他プレイヤーの位置・発射等）はホストが中継する。
    NPCはホストのクライアントのみがAI・移動・射撃を実行し、
    結果(位置・射撃)を他クライアントへ中継する「ホスト権威」方式。
    ============================================================ */
@@ -17,8 +20,11 @@ import { buildBotMesh, spawnBots, DIFF_PARAMS, DIFF_NAMES, losClear, resolveBotC
   pickWp, angleDelta, startDeathSequence, endDeathSequence, genVsField, genRandomVsProps,
   loadCustomMap, setBotSeek, setBotHold, yukaUpdate, syncBotFromVehicle } from "./bots.js";
 import { applyMode } from "./menu.js";
+import { p2p, p2pSetHandlers, p2pHostRoom, p2pJoinRoom, p2pSend, p2pSendToHost,
+  p2pBroadcast, p2pDisconnect } from "./p2p.js";
 
 const _v1=new THREE.Vector3(), _v2=new THREE.Vector3(), _v3=new THREE.Vector3(), _v4=new THREE.Vector3();
+const RESPAWN_DELAY_MS = 3000;
 
 /* ============================================================
    オンラインPVP用NPC（ホスト権威）
@@ -55,7 +61,7 @@ export function pvpBotShoot(bot,p,distP,target){
   const botId="bot:"+bot.netId;
   const origin={x:_v3.x,y:_v3.y,z:_v3.z}, dv={x:dir.x,y:dir.y,z:dir.z};
   spawnBB(_v3, dir, 90, 140, "pvpEnemy", botId, UP, bot.team);   // ホスト自身も被弾しうるのでローカルにも発射
-  if (pvp.socket) pvp.socket.emit("game:botShot", {botId, origin, dir:dv, v0:90, spinRps:140, team:bot.team});
+  p2pBroadcast("botShot", {botId, origin, dir:dv, v0:90, spinRps:140, team:bot.team});
 }
 export function updatePvpBots(dt, now){
   if (S.mode!=="pvp" || !pvp.inMatch || !pvp.iAmHost) return;
@@ -120,12 +126,12 @@ export function updatePvpBots(dt, now){
     bot.yaw += angleDelta(bot.targetYaw,bot.yaw)*Math.min(1,dt*8);
     bot.grp.position.copy(bot.pos);
     bot.grp.rotation.y=bot.yaw;
-    // フラッグ戦: NPCが敵陣の旗に到達したらそのチームの勝利をホストが報告
-    if (!pvpBotFlagCaptured && pvp.gameType==="flag" && bot.team && pvp.socket){
+    // フラッグ戦: NPCが敵陣の旗に到達したらそのチームの勝利をホストが確定させる
+    if (!pvpBotFlagCaptured && pvp.gameType==="flag" && bot.team){
       const fg=pvpBotFlagGoal(bot);
       if (fg && Math.hypot(bot.pos.x-fg.x, bot.pos.z-fg.z)<1.4){
         pvpBotFlagCaptured=true;
-        pvp.socket.emit("game:botFlagCapture", {team:bot.team});
+        hostHandleBotFlagCapture(bot.team);
       }
     }
   }
@@ -135,21 +141,36 @@ function pvpBotFlagGoal(bot){
   if (pvp.gameType!=="flag" || !bot.team) return null;
   return bot.team==="red" ? ENEMY_FLAG : PLAYER_FLAG;
 }
-let pvpBotFlagCaptured=false;   // 1試合1回だけ報告（多重emit防止。試合開始時にリセット）
+let pvpBotFlagCaptured=false;   // 1試合1回だけ確定させる（試合開始時にリセット）
 export function onPvpBotHit(bot, shooterId){
   bot.alive=false; bot.fallT=0;
   spawnParticles(bot.grp.position, 0xffffff, 5, 1.4);
-  // プレイヤーによる撃破のみサーバーへ報告（キル数加算）。
-  // NPC同士の撃ち合いはスコア対象外で、倒れた状態はgame:botsのブロードキャストで全員に同期される
-  if (pvp.socket && !String(shooterId).startsWith("bot:"))
-    pvp.socket.emit("game:botHit", {botId:"bot:"+bot.netId, shooterId});
+  // NPCのホスト権威カウントを減算（勝利条件判定に使用。これが無いとNPC全滅が検知できなかった）
+  if (hostRoom){
+    if (bot.team==="red" && hostRoom.npcAliveRed>0) hostRoom.npcAliveRed--;
+    else if (bot.team==="blue" && hostRoom.npcAliveBlue>0) hostRoom.npcAliveBlue--;
+    if (hostRoom.npcAlive>0) hostRoom.npcAlive--;
+  }
+  // プレイヤーによる撃破のみキル数加算・報告（NPC同士の撃ち合いはスコア対象外。
+  // 倒れた状態はgame:botsの位置ブロードキャストで全員に同期される）
+  if (!String(shooterId).startsWith("bot:")){
+    const shooter = hostRoom && hostRoom.players.get(shooterId);
+    if (shooter){
+      shooter.kills++;
+      const scores=hostScores();
+      const payload={targetId:"bot:"+bot.netId, shooterId, shooterName:shooter.name, targetName:"NPC", scores};
+      pvpOnKilled(payload);
+      p2pBroadcast("killed", payload);
+    }
+  }
+  hostCheckWin();
 }
 let pvpBotsLastSend=0;
 export function updatePvpBotsNetSend(now){
-  if (S.mode!=="pvp" || !pvp.inMatch || !pvp.iAmHost || !pvp.socket) return;
+  if (S.mode!=="pvp" || !pvp.inMatch || !pvp.iAmHost) return;
   if (now-pvpBotsLastSend<0.1) return;   // 約10Hz
   pvpBotsLastSend=now;
-  pvp.socket.emit("game:bots", bots.map(b=>({id:"bot:"+b.netId, x:b.pos.x, z:b.pos.z, yaw:b.yaw, alive:b.alive, team:b.team})));
+  p2pBroadcast("bots", bots.map(b=>({id:"bot:"+b.netId, x:b.pos.x, z:b.pos.z, yaw:b.yaw, alive:b.alive, team:b.team})));
 }
 export function pvpApplyBotsState(list){
   if (pvp.iAmHost) return;   // 自分がホストなら自前のbots配列が真実のソース
@@ -204,66 +225,259 @@ function makeNameSprite(name){
   spr.scale.set(1.3,0.32,1); spr.renderOrder=20;
   return spr;
 }
+
+/* ============================================================
+   ホスト権威ロジック（旧server.jsの内容をブラウザ内へ移植）
+   hostRoomはホストのタブだけが保持する「真実のソース」。
+   ゲストはpvp.currentRoom（hostRoomのpublicなスナップショット）だけを見る。
+   ============================================================ */
+let hostRoom = null;
+function clampDiff(v){ return (v==="weak"||v==="strong") ? v : "normal"; }
+function hostScores(){
+  return [...hostRoom.players.values()].map(p=>({id:p.id, name:p.name, kills:p.kills, deaths:p.deaths}));
+}
+function hostPublicRoom(){
+  return {
+    id: hostRoom.id, name: hostRoom.name, state: hostRoom.state, gameType: hostRoom.gameType,
+    npcCount: hostRoom.npcCount, npcDiff: hostRoom.npcDiff,
+    npcCountRed: hostRoom.npcCountRed, npcDiffRed: hostRoom.npcDiffRed,
+    npcCountBlue: hostRoom.npcCountBlue, npcDiffBlue: hostRoom.npcDiffBlue,
+    mapMode: hostRoom.mapMode, hostId: hostRoom.hostId,
+    players: [...hostRoom.players.values()].map(p=>({
+      id:p.id, name:p.name, ready:p.ready, alive:p.alive, kills:p.kills, deaths:p.deaths, team:p.team,
+    })),
+  };
+}
+function hostBroadcastRoom(){
+  pvp.currentRoom = hostPublicRoom();
+  renderPvpRoomView();
+  p2pBroadcast("roomUpdate", {room: pvp.currentRoom});
+}
+function hostAliveHumans(team=null){
+  return [...hostRoom.players.values()].filter(p=>p.alive && (!team || p.team===team));
+}
+/* 勝利条件判定（人間NPC双方を見る。以前はNPCの生死を一切見ておらず、
+   全NPCを倒しても試合が終わらないバグの原因になっていた） */
+function hostCheckWin(){
+  if (!hostRoom || hostRoom.state!=="playing") return;
+  if (hostRoom.gameType==="br"){
+    const alive=hostAliveHumans();
+    // 生存人間が0人（全滅）、または1人だけになりNPCも全滅していれば試合終了
+    if (alive.length===0 || (alive.length===1 && hostRoom.npcAlive<=0)){
+      const winner=alive[0]||null;
+      hostEndMatch({winnerId:winner?winner.id:null, winnerName:winner?winner.name:"-", winnerTeam:null});
+    }
+  } else if (hostRoom.gameType==="elim"){
+    const redTotal = hostAliveHumans("red").length + hostRoom.npcAliveRed;
+    const blueTotal = hostAliveHumans("blue").length + hostRoom.npcAliveBlue;
+    if (redTotal<=0 || blueTotal<=0){
+      const winnerTeam = redTotal>0 ? "red" : blueTotal>0 ? "blue" : null;
+      hostEndMatch({winnerId:null, winnerName:null, winnerTeam});
+    }
+  }
+}
+function hostEndMatch({winnerId, winnerName, winnerTeam}){
+  hostRoom.state="lobby";
+  for (const p of hostRoom.players.values()) p.ready=false;
+  const scores=hostScores();
+  const payload={winnerId, winnerName, winnerTeam, scores};
+  pvpOnGameOver(payload);
+  p2pBroadcast("gameOver", payload);
+  hostBroadcastRoom();
+}
+function hostHandleJoin(guestId, name){
+  if (!hostRoom || hostRoom.state!=="lobby"){
+    p2pSend(p2p.conns.get(guestId), "joinError", {reason: hostRoom? "試合が開始されています":"部屋がありません"});
+    return;
+  }
+  if (hostRoom.players.size>=16){
+    p2pSend(p2p.conns.get(guestId), "joinError", {reason:"満員です"});
+    return;
+  }
+  hostRoom.players.set(guestId, {
+    id:guestId, name:(typeof name==="string"&&name.trim())?name.trim().slice(0,16):"プレイヤー",
+    ready:false, alive:true, kills:0, deaths:0, team:null,
+  });
+  hostBroadcastRoom();
+}
+function hostHandleLeave(guestId){
+  if (!hostRoom) return;
+  const wasAlive = hostRoom.players.get(guestId)?.alive;
+  hostRoom.players.delete(guestId);
+  p2pBroadcast("playerLeft", {id:guestId});
+  if (hostRoom.state==="playing" && wasAlive) hostCheckWin();
+  hostBroadcastRoom();
+}
+function hostHandleReady(guestId, ready){
+  if (!hostRoom) return;
+  const p=hostRoom.players.get(guestId);
+  if (!p) return;
+  p.ready=!!ready;
+  hostBroadcastRoom();
+}
+function hostStartMatch(){
+  if (!hostRoom || hostRoom.state!=="lobby") return;
+  for (const p of hostRoom.players.values()){
+    if (!p.ready && p.id!==hostRoom.hostId) return;
+  }
+  hostRoom.state="playing";
+  let mapData = hostRoom.mapMode==="custom" ? (loadCustomMap()||[]) : [];
+  if (hostRoom.mapMode==="custom" && !mapData.length) showMsg("カスタムマップ未保存 → ランダム配置",2.2);
+  if (!mapData.length) mapData = genRandomVsProps();
+  hostRoom.mapData = mapData;
+  const teamed = hostRoom.gameType==="elim" || hostRoom.gameType==="flag";
+  const spawnCounters={red:0, blue:0, ffa:0};
+  let i=0; const players=[];
+  for (const p of hostRoom.players.values()){
+    p.alive=true; p.kills=0; p.deaths=0;
+    p.team = teamed ? (i%2===0?"red":"blue") : null;
+    i++;
+    const spawnIndex = teamed ? (spawnCounters[p.team]++%8) : (spawnCounters.ffa++%8);
+    players.push({id:p.id, name:p.name, team:p.team, spawnIndex});
+  }
+  // NPCのホスト権威生存カウント初期化（バトルロワイアル=合計、殲滅戦=チーム別）
+  hostRoom.npcAlive = hostRoom.gameType==="br" ? hostRoom.npcCount : 0;
+  hostRoom.npcAliveRed = hostRoom.gameType==="elim" ? hostRoom.npcCountRed : 0;
+  hostRoom.npcAliveBlue = hostRoom.gameType==="elim" ? hostRoom.npcCountBlue : 0;
+  const payload={
+    players, gameType:hostRoom.gameType, hostId:hostRoom.hostId, mapData,
+    npcCount:hostRoom.npcCount, npcDiff:hostRoom.npcDiff,
+    npcCountRed:hostRoom.npcCountRed, npcDiffRed:hostRoom.npcDiffRed,
+    npcCountBlue:hostRoom.npcCountBlue, npcDiffBlue:hostRoom.npcDiffBlue,
+  };
+  pvpStartMatch(payload);
+  p2pBroadcast("start", payload);
+}
+function hostHandleHit(targetId, shooterId){
+  if (!hostRoom || hostRoom.state!=="playing") return;
+  const target = hostRoom.players.get(targetId);
+  const isBotShooter = typeof shooterId==="string" && shooterId.startsWith("bot:");
+  const shooter = isBotShooter ? null : hostRoom.players.get(shooterId);
+  if (!target || !target.alive || shooterId===targetId) return;
+  if (!isBotShooter && !shooter) return;
+  if (shooter && hostRoom.gameType!=="br" && shooter.team===target.team) return;   // 味方撃ちは無効
+  target.alive=false; target.deaths++;
+  if (shooter) shooter.kills++;
+  const scores=hostScores();
+  const payload={targetId, shooterId, shooterName: shooter?shooter.name:"NPC", targetName:target.name, scores};
+  pvpOnKilled(payload);
+  p2pBroadcast("killed", payload);
+  if (hostRoom.gameType==="br" || hostRoom.gameType==="elim"){ hostCheckWin(); return; }
+  // フラッグ戦: 旗を奪われるまで戦闘継続のためリスポーンする
+  setTimeout(()=>{
+    if (!hostRoom || hostRoom.state!=="playing") return;
+    const t=hostRoom.players.get(targetId);
+    if (!t) return;
+    t.alive=true;
+    const spawnIndex=Math.floor(Math.random()*8);
+    const rpayload={id:targetId, spawnIndex};
+    pvpOnRespawn(rpayload);
+    p2pBroadcast("respawn", rpayload);
+  }, RESPAWN_DELAY_MS);
+}
+function hostHandleFlagCapture(playerId){
+  if (!hostRoom || hostRoom.state!=="playing" || hostRoom.gameType!=="flag") return;
+  const p=hostRoom.players.get(playerId);
+  if (!p || !p.alive || !p.team) return;
+  hostEndMatch({winnerId:p.id, winnerName:p.name, winnerTeam:p.team});
+}
+function hostHandleBotFlagCapture(team){
+  if (!hostRoom || hostRoom.state!=="playing" || hostRoom.gameType!=="flag") return;
+  if (team!=="red" && team!=="blue") return;
+  hostEndMatch({winnerId:null, winnerName:"NPC", winnerTeam:team});
+}
+
+/* ============================================================
+   メッセージ配線（ホスト/ゲストで受信処理を振り分ける）
+   ============================================================ */
+function hostOnMessage(fromId, type, payload){
+  switch(type){
+    case "join": hostHandleJoin(fromId, payload && payload.name); break;
+    case "ready": hostHandleReady(fromId, payload && payload.ready); break;
+    case "state": {
+      const d={id:fromId, ...payload};
+      pvpApplyRemoteState(d);
+      p2pBroadcast("state", d, fromId);
+      break;
+    }
+    case "shot": {
+      const d={id:fromId, ...payload};
+      pvpSpawnRemoteShot(d);
+      p2pBroadcast("shot", d, fromId);
+      break;
+    }
+    case "hit": hostHandleHit(fromId, payload && payload.shooterId); break;
+    case "flagCapture": hostHandleFlagCapture(fromId); break;
+  }
+}
+function guestOnMessage(fromId, type, payload){
+  switch(type){
+    case "roomUpdate": pvp.currentRoom=payload.room; renderPvpRoomView(); break;
+    case "joinError":
+      alert((payload&&payload.reason)||"参加に失敗しました");
+      pvpLeaveRoom();
+      break;
+    case "start": pvpStartMatch(payload); break;
+    case "state": pvpApplyRemoteState(payload); break;
+    case "shot": pvpSpawnRemoteShot(payload); break;
+    case "bots": pvpApplyBotsState(payload); break;
+    case "botShot": pvpSpawnBotShot(payload); break;
+    case "killed": pvpOnKilled(payload); break;
+    case "respawn": pvpOnRespawn(payload); break;
+    case "gameOver": pvpOnGameOver(payload); break;
+    case "playerLeft": {
+      const rp=pvp.players.get(payload.id);
+      if (rp){ scene.remove(rp.pivot); pvp.players.delete(payload.id); }
+      break;
+    }
+  }
+}
+p2pSetHandlers({
+  onMessage:(fromId,type,payload)=>{ (pvp.iAmHost? hostOnMessage : guestOnMessage)(fromId,type,payload); },
+  onGuestOpen:(conn)=>{ /* 接続確立: 参加確定はゲストからの"join"メッセージを待つ */ },
+  onGuestClose:(guestId)=>{ if (pvp.iAmHost) hostHandleLeave(guestId); },
+  onHostClose:()=>{
+    if (!pvp.iAmHost){
+      showMsg("ホストとの接続が切れました",3);
+      pvp.inMatch=false;
+      pvpLeaveRoom();
+    }
+  },
+});
+
+/* ============================================================
+   ロビーUI・接続フロー
+   ============================================================ */
+function shareUrl(roomId){
+  return location.origin+location.pathname+"?room="+encodeURIComponent(roomId);
+}
+function showShareUrlIfHost(){
+  const isHost = pvp.currentRoom && pvp.currentRoom.hostId===pvp.myId;
+  const show = isHost && !pvp.inMatch;
+  $("pvpShareUrlRow").style.display = show ? "flex" : "none";
+  if (show) $("pvpShareUrlInput").value = shareUrl(pvp.currentRoom.id);
+}
+let autoJoinTried=false;
+/* ページ読み込み直後にURLの?roomパラメータを読み取り、あれば自動でホストへ接続する */
+export function pvpAutoJoinFromUrl(){
+  const params=new URLSearchParams(location.search);
+  const roomId=params.get("room");
+  if (!roomId) return;
+  autoJoinTried=true;
+  S.mode="pvp";
+  $("menu").style.display="none";
+  $("pvpLobby").classList.add("show");
+  pvp.name = ($("pvpNameInput").value||"プレイヤー").trim().slice(0,16) || "プレイヤー";
+  pvpJoinRoom(roomId);
+}
 export function pvpConnect(){
-  if (pvp.socket) return;
-  if (typeof io==="undefined"){
-    $("pvpConnStatus").textContent="サーバーに接続できません（Node.jsサーバー(server.js)を起動してください）";
-    $("pvpConnStatus").className="error";
-    return;
-  }
-  const s = pvp.socket = io();
-  s.on("connect",()=>{
-    pvp.connected=true; pvp.myId=s.id;
-    $("pvpConnStatus").textContent="接続済み（自分: "+pvp.myId.slice(0,6)+"）";
-    $("pvpConnStatus").className="connected";
-    s.emit("lobby:setName", pvp.name);
-    pvpRefreshRoomList();
-  });
-  s.on("disconnect",()=>{
-    pvp.connected=false;
-    $("pvpConnStatus").textContent="切断されました。再接続を試みています…";
-    $("pvpConnStatus").className="error";
-    pvp.currentRoom=null; renderPvpRoomView();
-  });
-  s.on("lobby:update", room=>{ pvp.currentRoom=room; renderPvpRoomView(); });
-  s.on("game:start", data=> pvpStartMatch(data));
-  s.on("game:state", state=> pvpApplyRemoteState(state));
-  s.on("game:shot", shot=> pvpSpawnRemoteShot(shot));
-  s.on("game:botShot", shot=> pvpSpawnBotShot(shot));
-  s.on("game:bots", list=> pvpApplyBotsState(list));
-  s.on("game:killed", data=> pvpOnKilled(data));
-  s.on("game:respawn", data=> pvpOnRespawn(data));
-  s.on("game:over", data=> pvpOnGameOver(data));
-}
-export function pvpRefreshRoomList(){
-  if (!pvp.socket) return;
-  pvp.socket.emit("lobby:list", list=>{ pvp.roomListCache=list; renderPvpRoomList(); });
-}
-function renderPvpRoomList(){
-  const el=$("pvpRoomList");
-  if (!pvp.roomListCache.length){
-    el.innerHTML=`<div id="pvpRoomListEmpty">部屋がありません。新しく作成してください</div>`;
-    return;
-  }
-  el.innerHTML="";
-  const gtNames={br:"バトルロワイアル", elim:"殲滅戦", flag:"フラッグ戦"};
-  for (const r of pvp.roomListCache){
-    const div=document.createElement("div");
-    div.className="pvpRoomItem";
-    const npcTxt = r.gameType==="br" ? (r.npcCount?"+NPC"+r.npcCount:"")
-      : ((r.npcCountRed||r.npcCountBlue)?`+NPC🔴${r.npcCountRed}🔵${r.npcCountBlue}`:"");
-    div.innerHTML=`<span>${escapeHtml(r.name)} <span style="color:var(--dim)">(${r.count}人${npcTxt})</span></span><b>${gtNames[r.gameType]||r.gameType}</b>`;
-    div.addEventListener("click",()=> pvpJoinRoom(r.id));
-    el.appendChild(div);
-  }
+  if (!pvp.connected && !autoJoinTried) renderPvpRoomView();
 }
 function pvpSelDiff(id){
   const sel=$(id).querySelector(".chip.sel");
   return sel ? sel.dataset.d : "normal";
 }
-export function pvpCreateRoom(){
-  if (!pvp.socket) return;
-  const name=$("pvpNewRoomName").value||"ルーム";
+export async function pvpCreateRoom(){
   const btns={br:$("pvpGameTypeBr"), elim:$("pvpGameTypeElim"), flag:$("pvpGameTypeFlag")};
   const gameType=Object.keys(btns).find(k=>btns[k].classList.contains("sel"))||"br";
   const npcCount=+$("pvpNpcCountSlider").value||0;
@@ -273,28 +487,63 @@ export function pvpCreateRoom(){
   const npcCountBlue=+$("pvpNpcCountBlueSlider").value||0;
   const npcDiffBlue=pvpSelDiff("pvpNpcDiffBlueChips");
   const mapMode=$("pvpMapCustom").classList.contains("sel")?"custom":"random";
-  pvp.socket.emit("lobby:create", {
-    name, gameType, npcCount, npcDiff, npcCountRed, npcDiffRed, npcCountBlue, npcDiffBlue, mapMode,
-  }, res=>{
-    if (res && res.ok){ pvp.currentRoom=res.room; renderPvpRoomView(); }
-  });
+  $("pvpConnStatus").textContent="部屋を作成中…";
+  $("pvpConnStatus").className="";
+  try {
+    const id = await p2pHostRoom();
+    pvp.iAmHost=true; pvp.myId=id; pvp.connected=true;
+    hostRoom = {
+      id, name: pvp.name+"の部屋", state:"lobby", gameType,
+      npcCount:Math.min(8,Math.max(0,npcCount)), npcDiff:clampDiff(npcDiff),
+      npcCountRed:Math.min(8,Math.max(0,npcCountRed)), npcDiffRed:clampDiff(npcDiffRed),
+      npcCountBlue:Math.min(8,Math.max(0,npcCountBlue)), npcDiffBlue:clampDiff(npcDiffBlue),
+      mapMode, hostId:id, players:new Map(), mapData:[],
+      npcAlive:0, npcAliveRed:0, npcAliveBlue:0,
+    };
+    hostRoom.players.set(id, {id, name:pvp.name, ready:false, alive:true, kills:0, deaths:0, team:null});
+    $("pvpConnStatus").textContent="接続済み（自分: "+id+"）";
+    $("pvpConnStatus").className="connected";
+    hostBroadcastRoom();
+  } catch (err){
+    $("pvpConnStatus").textContent="部屋の作成に失敗しました: "+((err&&err.message)||err);
+    $("pvpConnStatus").className="error";
+  }
 }
-export function pvpJoinRoom(roomId){
-  if (!pvp.socket) return;
-  pvp.socket.emit("lobby:join", {roomId}, res=>{
-    if (res && res.ok){ pvp.currentRoom=res.room; renderPvpRoomView(); }
-    else if (res) alert(res.error||"参加に失敗しました");
-  });
+export async function pvpJoinRoomFromInput(){
+  const raw=($("pvpJoinCodeInput").value||"").trim();
+  if (!raw) return;
+  let roomId=raw;
+  try {
+    if (raw.includes("room=")) roomId = new URL(raw, location.href).searchParams.get("room") || raw;
+  } catch(e){}
+  pvpJoinRoom(roomId);
+}
+export async function pvpJoinRoom(roomId){
+  if (!roomId) return;
+  $("pvpConnStatus").textContent="ホストに接続中…";
+  $("pvpConnStatus").className="";
+  try {
+    await p2pJoinRoom(roomId);
+    pvp.iAmHost=false; pvp.myId=p2p.myId; pvp.connected=true;
+    $("pvpConnStatus").textContent="接続済み（自分: "+pvp.myId+"）";
+    $("pvpConnStatus").className="connected";
+    p2pSendToHost("join", {name:pvp.name});
+  } catch (err){
+    $("pvpConnStatus").textContent="接続に失敗しました: "+((err&&err.message)||err);
+    $("pvpConnStatus").className="error";
+  }
 }
 export function pvpLeaveRoom(){
-  if (pvp.socket) pvp.socket.emit("lobby:leave");
-  pvp.currentRoom=null;
+  p2pDisconnect();
+  pvp.connected=false; pvp.currentRoom=null; pvp.iAmHost=false; pvp.myId=null;
+  hostRoom=null;
+  $("pvpConnStatus").textContent="未接続";
+  $("pvpConnStatus").className="";
   renderPvpRoomView();
-  pvpRefreshRoomList();
 }
 export function renderPvpRoomView(){
   const inRoom=!!pvp.currentRoom;
-  $("pvpRoomListView").style.display = inRoom? "none":"block";
+  $("pvpSetupView").style.display = inRoom? "none":"block";
   $("pvpRoomView").style.display = inRoom? "block":"none";
   if (!inRoom) return;
   const room=pvp.currentRoom;
@@ -307,6 +556,7 @@ export function renderPvpRoomView(){
     ? `NPC 🔴${room.npcCountRed}体(${DIFF_NAMES[room.npcDiffRed]||room.npcDiffRed})／🔵${room.npcCountBlue}体(${DIFF_NAMES[room.npcDiffBlue]||room.npcDiffBlue})`
     : `NPC${room.npcCount}体(${DIFF_NAMES[room.npcDiff]||room.npcDiff})`;
   $("pvpRoomSettings").textContent = `${gtName} ｜ ${npcTxt} ｜ ${mapName}`;
+  showShareUrlIfHost();
   const list=$("pvpPlayerList"); list.innerHTML="";
   const isHost = room.hostId===pvp.myId;
   let allReady=true;
@@ -441,7 +691,8 @@ export function onPvpPlayerHit(shooterId){
   $("dmgFlash").classList.add("show");
   setTimeout(()=>$("dmgFlash").classList.remove("show"),700);
   startDeathSequence();
-  if (pvp.socket) pvp.socket.emit("game:hit", {shooterId});
+  if (pvp.iAmHost) hostHandleHit(pvp.myId, shooterId);
+  else p2pSendToHost("hit", {shooterId});
 }
 function pvpOnKilled({targetId, shooterId, shooterName, targetName, scores}){
   pvpUpdateScoresFromServer(scores);
@@ -495,25 +746,34 @@ export function updatePvpRemotes(dt){
 }
 let pvpLastSend=0;
 export function updatePvpNetSend(now){
-  if (S.mode!=="pvp" || !pvp.inMatch || !pvp.socket) return;
+  if (S.mode!=="pvp" || !pvp.inMatch) return;
   if (now-pvpLastSend<0.06) return;   // 約16Hz
   pvpLastSend=now;
-  pvp.socket.emit("game:state",{
-    pos:{x:player.pos.x,y:player.pos.y,z:player.pos.z}, yaw:player.yaw, pitch:player.pitch,
-  });
+  const state={pos:{x:player.pos.x,y:player.pos.y,z:player.pos.z}, yaw:player.yaw, pitch:player.pitch};
+  if (pvp.iAmHost) p2pBroadcast("state", {id:pvp.myId, ...state});
+  else p2pSendToHost("state", state);
 }
 /* フラッグ戦: 敵陣の旗に到達したら自己申告してチーム勝利を確定させる */
 export function updatePvpFlagCapture(dt){
-  if (S.mode!=="pvp" || !pvp.inMatch || pvp.gameType!=="flag" || RT.dying || !pvp.myTeam || !pvp.socket) return;
+  if (S.mode!=="pvp" || !pvp.inMatch || pvp.gameType!=="flag" || RT.dying || !pvp.myTeam) return;
   const enemyFlag = pvp.myTeam==="red" ? ENEMY_FLAG : PLAYER_FLAG;
   if (Math.hypot(player.pos.x-enemyFlag.x, player.pos.z-enemyFlag.z) < 1.4){
-    pvp.socket.emit("game:flagCapture");
+    if (pvp.iAmHost) hostHandleFlagCapture(pvp.myId);
+    else p2pSendToHost("flagCapture", {});
   }
 }
 
 export function wirePvpLobbyUI(){
-  $("pvpRefreshBtn").addEventListener("click", pvpRefreshRoomList);
   $("pvpCreateBtn").addEventListener("click", pvpCreateRoom);
+  $("pvpJoinBtn").addEventListener("click", pvpJoinRoomFromInput);
+  $("pvpCopyUrlBtn").addEventListener("click", async ()=>{
+    const url=$("pvpShareUrlInput").value;
+    try {
+      await navigator.clipboard.writeText(url);
+      const b=$("pvpCopyUrlBtn"); const orig=b.textContent;
+      b.textContent="コピーしました"; setTimeout(()=>{ b.textContent=orig; },1500);
+    } catch(e){ $("pvpShareUrlInput").select(); }
+  });
   $("pvpLeaveBtn").addEventListener("click", pvpLeaveRoom);
   // 試合中にMキー等でロックを解除してロビーが出た場合、試合自体は継続しているので
   // 離脱せずポインタロックを取り直すだけで元の試合に戻れる
@@ -522,19 +782,15 @@ export function wirePvpLobbyUI(){
     renderer.domElement.requestPointerLock();
   });
   $("pvpReadyBtn").addEventListener("click",()=>{
-    if (!pvp.currentRoom || !pvp.socket) return;
+    if (!pvp.currentRoom) return;
     const me=pvp.currentRoom.players.find(p=>p.id===pvp.myId);
-    pvp.socket.emit("lobby:ready", !(me&&me.ready));
+    const newReady=!(me&&me.ready);
+    if (pvp.iAmHost) hostHandleReady(pvp.myId, newReady);
+    else p2pSendToHost("ready", {ready:newReady});
   });
   $("pvpStartBtn").addEventListener("click",()=>{
-    if (!pvp.socket || !pvp.currentRoom) return;
-    // ホストがバリケード配置を一度だけ確定し、全クライアントへ配布して同一レイアウトにする
-    let mapData = pvp.currentRoom.mapMode==="custom" ? (loadCustomMap()||[]) : [];
-    if (pvp.currentRoom.mapMode==="custom" && !mapData.length){
-      showMsg("カスタムマップ未保存 → ランダム配置",2.2);
-    }
-    if (!mapData.length) mapData = genRandomVsProps();
-    pvp.socket.emit("lobby:start", {mapData});
+    if (!pvp.iAmHost || !pvp.currentRoom) return;
+    hostStartMatch();
   });
   $("pvpCloseBtn").addEventListener("click",()=>{
     pvpLeaveRoom();

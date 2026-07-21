@@ -8,6 +8,7 @@ import { sndClick, sndShot, sndReload, audio } from "./sound.js";
 import { spawnBB, resolveHipAimPoint } from "./bb.js";
 import { gun, gunCorrected, MUZZLE_LOCAL, MUZZLE_LOCAL_MODEL, muzzleInGunLocal,
   AIM_PX_X, AIM_PX_Y, exitSightCal } from "./gun.js";
+import { p2pBroadcast, p2pSendToHost } from "./p2p.js";
 
 export const LEAN_MAX_ROLL = 12*Math.PI/180;   // 最大ロール角
 export const LEAN_MAX_OFFSET = 0.4;            // 最大横オフセット(m)
@@ -164,11 +165,11 @@ export function tryShoot(){
   if (player.lean) _leanUp.applyAxisAngle(_dir, player.lean*LEAN_MAX_ROLL);
   spawnBB(_spawn,_dir,S.v0,S.spinRps,"player",null,_leanUp, S.mode==="pvp"?pvp.myTeam:null);
 
-  if (S.mode==="pvp" && pvp.inMatch && pvp.socket){
-    pvp.socket.emit("game:shot", {
-      origin:{x:_spawn.x,y:_spawn.y,z:_spawn.z}, dir:{x:_dir.x,y:_dir.y,z:_dir.z},
-      v0:S.v0, spinRps:S.spinRps,
-    });
+  if (S.mode==="pvp" && pvp.inMatch){
+    const shot={origin:{x:_spawn.x,y:_spawn.y,z:_spawn.z}, dir:{x:_dir.x,y:_dir.y,z:_dir.z},
+      v0:S.v0, spinRps:S.spinRps};
+    if (pvp.iAmHost) p2pBroadcast("shot", {id:pvp.myId, ...shot});
+    else p2pSendToHost("shot", shot);
   }
 
   weapon.kick=1;
@@ -352,7 +353,6 @@ export function wireInput({ edit, editPlace, editDelete, makeGhost, updateEditHU
       $("menu").style.display="none";
       $("pvpLobby").classList.add("show");
       pvp.name = ($("pvpNameInput").value||"プレイヤー").trim().slice(0,16) || "プレイヤー";
-      if (pvp.socket) pvp.socket.emit("lobby:setName", pvp.name);
       pvpConnect();
       return;
     }
