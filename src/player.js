@@ -7,7 +7,7 @@ import { simulate2D, solveOptimalSpin } from "./physics.js";
 import { sndClick, sndShot, sndReload, audio } from "./sound.js";
 import { spawnBB, resolveHipAimPoint } from "./bb.js";
 import { gun, gunCorrected, MUZZLE_LOCAL, MUZZLE_LOCAL_MODEL, muzzleInGunLocal,
-  AIM_PX_X, AIM_PX_Y } from "./gun.js";
+  AIM_PX_X, AIM_PX_Y, exitSightCal } from "./gun.js";
 
 export const LEAN_MAX_ROLL = 12*Math.PI/180;   // 最大ロール角
 export const LEAN_MAX_OFFSET = 0.4;            // 最大横オフセット(m)
@@ -240,9 +240,13 @@ export function wireInput({ edit, editPlace, editDelete, makeGhost, updateEditHU
   /* Ctrl+W誤爆対策: しゃがみ(Ctrl)+前進(W)を同時に押す操作がある都合上、
      ブラウザの「タブを閉じる」ショートカットと衝突しうる。
      preventDefaultはChrome/Firefox等ではCtrl+Wに対して効かない仕様だが、
-     念のため試みつつ、beforeunloadで離脱確認ダイアログを出し閉じる事故を緩和する。 */
+     念のため試みつつ、beforeunloadで離脱確認ダイアログを出し閉じる事故を緩和する。
+     Tab: ゲーム中はフォーカス可能なUIが無く、Tabを押すとブラウザのツールバーへ
+     フォーカスが移ってウィンドウがフォーカスを失い、ポインタロックが解除されて
+     「画面が固まった」ように見えるため、ロック中はTabの既定動作を無効化する。 */
   window.addEventListener("keydown",e=>{
     if (e.ctrlKey && (e.key==="w"||e.key==="W")) e.preventDefault();
+    if (e.code==="Tab" && RT.locked) e.preventDefault();
   },{capture:true});
   window.addEventListener("beforeunload",e=>{
     e.preventDefault();
@@ -252,6 +256,11 @@ export function wireInput({ edit, editPlace, editDelete, makeGhost, updateEditHU
   document.addEventListener("keydown",e=>{
     if (e.repeat) return;
     keys[e.code]=true;
+    // メニューキーは全モード共通で M（Escはブラウザ既定のポインタロック解除としてそのまま併用可）
+    if (e.code==="KeyM"){
+      if (sightCal.active){ exitSightCal(); return; }
+      if (RT.locked){ document.exitPointerLock(); return; }
+    }
     if (!RT.locked) return;
     if (S.mode==="edit"){
       if (e.code==="Digit1"){ edit.sel="ply";   makeGhost(); updateEditHUD(); }
