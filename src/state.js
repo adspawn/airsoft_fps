@@ -247,8 +247,8 @@ export function pvpFriendly(teamA, teamB){
 /* ============================================================
    サイト調整（デバッグ）モード状態
    ============================================================ */
-export const sightCal = {active:false, pitch:0, yaw:0, roll:0, crossX:0, crossY:0, fov:50,
-  muzzleX:0, muzzleY:0, muzzleZ:0, crossSize:14, circleSize:0,
-  hipX:0.22, hipY:-0.22, hipZ:-0.48,   // 銃の保持位置（腰だめ描写）＝GUN_HIP既定値
+export const sightCal = {active:false, pitch:-0.7, yaw:-0.6, roll:0, crossX:30, crossY:0, fov:25,
+  muzzleX:-0.002, muzzleY:-0.007, muzzleZ:0.357, crossSize:0, circleSize:0,
+  hipX:0.235, hipY:-0.225, hipZ:-0.35,   // 銃の保持位置（腰だめ描写）＝GUN_HIP既定値
   walk:false, walkDragging:false};      // walk: WASD移動で確認するサブモード
 export const sightCalOrbit = {active:false, dragging:false, yaw:0.6, pitch:0.35, dist:0.3};

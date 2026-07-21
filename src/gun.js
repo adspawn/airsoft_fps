@@ -24,7 +24,7 @@ gun.add(gunProcedural);
   add(new THREE.BoxGeometry(.06,.20,.09),  black, 0,-.155,-.04, .12);        // マガジン
   add(new THREE.BoxGeometry(.05,.03,.09),  black, 0,.08,-.10);               // サイトベース
 }
-export const GUN_HIP = new THREE.Vector3(.22,-.22,-.48);
+export const GUN_HIP = new THREE.Vector3(.235,-.225,-.35);
 export const GUN_ADS = new THREE.Vector3(0,-.115,-.30);
 gun.position.copy(GUN_HIP);
 camera.add(gun);
@@ -101,7 +101,7 @@ export function applyCrosshairSize(crossSize, circleSize){
 }
 /* 銃の腰だめ描写位置(GUN_HIP)を反映（updateGunが毎フレームこの値を参照する） */
 export function applyGunHip(x, y, z){
-  GUN_HIP.set(x!=null?x:0.22, y!=null?y:-0.22, z!=null?z:-0.48);
+  GUN_HIP.set(x!=null?x:0.235, y!=null?y:-0.225, z!=null?z:-0.35);
 }
 // クロスヘアのサイズ・保持位置は銃モデル(GLB)の読込みを待たず、起動時に即座に反映する
 {
@@ -188,10 +188,11 @@ export function loadGunModel(GLTFLoader){
     REAR_LOCAL  = pts.rear;
     MUZZLE_LOCAL_MODEL = pts.muzzle;   // 実マズル先端（BB弾の発射起点）
 
-    // 保存済みキャリブレーション値があれば復元、なければ無補正(0,0,0)・中央十字・50°で開始
+    // 保存済みキャリブレーション値があれば復元、なければ実測済みの固定キャリブレーション値で開始
     const saved = loadSightCalib();
-    const init = saved || {pitchDeg:0, yawDeg:0, rollDeg:0, crossX:0, crossY:0, fovDeg:50, muzzleX:0, muzzleY:0, muzzleZ:0,
-      crossSize:14, circleSize:0};
+    const init = saved || {pitchDeg:-0.7, yawDeg:-0.6, rollDeg:0, crossX:30, crossY:0, fovDeg:25,
+      muzzleX:-0.002, muzzleY:-0.007, muzzleZ:0.357, crossSize:0, circleSize:0,
+      hipX:0.235, hipY:-0.225, hipZ:-0.35};
     applySightCalibration(init.pitchDeg, init.yawDeg, init.rollDeg, init.fovDeg||50);
     MUZZLE_OFFSET.set(init.muzzleX||0, init.muzzleY||0, init.muzzleZ||0);
     AIM_PX_X=init.crossX||0; AIM_PX_Y=init.crossY||0;
@@ -201,7 +202,7 @@ export function loadGunModel(GLTFLoader){
       sightCal.crossX=init.crossX||0; sightCal.crossY=init.crossY||0; sightCal.fov=init.fovDeg||50;
       sightCal.muzzleX=init.muzzleX||0; sightCal.muzzleY=init.muzzleY||0; sightCal.muzzleZ=init.muzzleZ||0;
       sightCal.crossSize=init.crossSize!=null?init.crossSize:14; sightCal.circleSize=init.circleSize!=null?init.circleSize:0;
-      sightCal.hipX=init.hipX!=null?init.hipX:0.22; sightCal.hipY=init.hipY!=null?init.hipY:-0.22; sightCal.hipZ=init.hipZ!=null?init.hipZ:-0.48;
+      sightCal.hipX=init.hipX!=null?init.hipX:0.235; sightCal.hipY=init.hipY!=null?init.hipY:-0.225; sightCal.hipZ=init.hipZ!=null?init.hipZ:-0.35;
       applyCrosshairSize(sightCal.crossSize, sightCal.circleSize);
       applyGunHip(sightCal.hipX, sightCal.hipY, sightCal.hipZ);
     }
@@ -358,7 +359,7 @@ export function exitSightCal(){
   $("menu").style.display="";   // インラインstyle指定を解除し、CSS(.locked #menu)の制御に戻す
 }
 export function wireSightCalUI(){
-  $("sightCalBtn").addEventListener("click", enterSightCal);
+  // サイト調整モードは通常メニューには表示せず、専用URL(?sightcal)からのみ入れる(main.js側で判定)
   $("sightCalExit").addEventListener("click", exitSightCal);
   $("sightCalOrbitToggle").addEventListener("click",()=>{
     if (sightCalOrbit.active) exitOrbitView(); else enterOrbitView();
@@ -384,11 +385,12 @@ export function wireSightCalUI(){
     hipX:sightCal.hipX, hipY:sightCal.hipY, hipZ:sightCal.hipZ,
   });
   $("sightCalReset").addEventListener("click",()=>{
-    sightCal.pitch=0; sightCal.yaw=0; sightCal.roll=0;
-    sightCal.crossX=0; sightCal.crossY=0; sightCal.fov=50;
-    sightCal.muzzleX=0; sightCal.muzzleY=0; sightCal.muzzleZ=0;
-    sightCal.crossSize=14; sightCal.circleSize=0;
-    sightCal.hipX=0.22; sightCal.hipY=-0.22; sightCal.hipZ=-0.48;
+    // 「リセット」= 実測済みの固定キャリブレーション値（ゲーム既定値）へ戻す
+    sightCal.pitch=-0.7; sightCal.yaw=-0.6; sightCal.roll=0;
+    sightCal.crossX=30; sightCal.crossY=0; sightCal.fov=25;
+    sightCal.muzzleX=-0.002; sightCal.muzzleY=-0.007; sightCal.muzzleZ=0.357;
+    sightCal.crossSize=0; sightCal.circleSize=0;
+    sightCal.hipX=0.235; sightCal.hipY=-0.225; sightCal.hipZ=-0.35;
     sightCalRefresh();
   });
   $("sightCalApply").addEventListener("click",()=>{
