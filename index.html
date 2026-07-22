@@ -25,6 +25,9 @@
     <div id="rangeBoard">
       <div>スコア <span class="big" id="score">0</span></div>
       <div>命中率 <b id="acc">—</b>　<span id="timer"></span></div>
+      <div id="impactRow">着弾 <b id="impactKind">—</b>　距離 <b id="impactDist">—</b>
+        エネルギー <b id="impactEnergy">—</b>　残速 <b id="impactSpeed">—</b></div>
+      <div id="windRow">風 <b id="windDisp">なし</b></div>
     </div>
     <div id="vsBoard" style="display:none">
       <div>撃破 <span class="big" id="vsYou">0</span><span id="vsGoal"></span>
@@ -332,6 +335,22 @@
       </div>
     </div>
     <!-- 対戦(NPC)モード用の設定（モード選択に応じて表示切替） -->
+    <div class="setRow" id="rowWindSpeed">
+      <label>風速</label>
+      <input type="range" id="windSpeedSlider" min="0" max="15" step="0.5" value="0">
+      <span class="val" id="windSpeedVal">0.0 m/s</span>
+    </div>
+    <div class="setRow" id="rowWindDir">
+      <label>風向</label>
+      <input type="range" id="windDirSlider" min="0" max="359" step="5" value="90">
+      <span class="val" id="windDirVal">東（右へ）</span>
+    </div>
+    <div class="setRow" id="rowWindNote" style="margin-top:-6px">
+      <label></label>
+      <span style="font-size:11px;color:var(--dim)">
+        風が吹いて<b>いく</b>方位。射座は北(-Z)向き＝0°は追い風・180°は向かい風・90°は右へ流す横風
+      </span>
+    </div>
     <div class="setRow" id="rowWeapon">
       <label>銃の種類</label>
       <div class="chips" id="weaponChips">

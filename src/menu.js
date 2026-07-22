@@ -2,7 +2,8 @@
    メインメニュー設定・モード切替（applyMode）
    ============================================================ */
 import { $, S, RT, clearKeys, weapon, MAG_SIZE, EYE_H, player, targets, pvp,
-  VS_ARENA, PLAYER_FLAG, RED_NPC_SPAWNS, BLUE_NPC_SPAWNS, RED_PLAYER_SPAWNS } from "./state.js";
+  VS_ARENA, PLAYER_FLAG, RED_NPC_SPAWNS, BLUE_NPC_SPAWNS, RED_PLAYER_SPAWNS,
+  updateWindVector, windDirName } from "./state.js";
 import { solveOptimalSpin } from "./physics.js";
 import { bbPool, killBB } from "./bb.js";
 import { gun, setWeapon } from "./gun.js";
@@ -143,7 +144,8 @@ export function wireMenuUI(){
      - 跳弾ヒットは射撃が発生する全モードで共通表示（装備値自体は全モード共通） */
   function updateMenuRows(){
     const range=S.mode==="range", vs=S.mode==="vs";
-    for (const id of ["rowMass","rowV0","rowCycle"]) $(id).style.display=range?"flex":"none";
+    for (const id of ["rowMass","rowV0","rowCycle","rowWindSpeed","rowWindDir","rowWindNote"])
+      $(id).style.display=range?"flex":"none";
     $("menuEnergy").style.display=range?"block":"none";
     for (const id of ["rowVsRuleset","rowVsMap"]) $(id).style.display=vs?"flex":"none";
     // オンラインPVPのロビーと同じ構成: バトルロワイアル=単一NPC設定 / チーム戦=🔴🔵個別設定
@@ -173,6 +175,19 @@ export function wireMenuUI(){
     S.vsMap="custom";
     $("vsMapCustom").classList.add("sel"); $("vsMapRandom").classList.remove("sel");
   });
+  /* 風の設定（射撃練習）。値を変えたら風ベクトルとHUD表示を作り直す */
+  function refreshWind(){
+    updateWindVector();
+    $("windSpeedVal").textContent=S.windSpeed.toFixed(1)+" m/s";
+    const rel = S.windDir===0 ? "追い風" : S.windDir===180 ? "向かい風"
+      : (S.windDir>0 && S.windDir<180) ? "右へ" : "左へ";
+    $("windDirVal").textContent=`${windDirName(S.windDir)}（${rel}）`;
+    $("windDisp").textContent = S.windSpeed>0
+      ? `${windDirName(S.windDir)}へ ${S.windSpeed.toFixed(1)} m/s` : "なし";
+  }
+  $("windSpeedSlider").addEventListener("input",e=>{ S.windSpeed=+e.target.value; refreshWind(); });
+  $("windDirSlider").addEventListener("input",e=>{ S.windDir=+e.target.value; refreshWind(); });
+  refreshWind();
   $("weaponChips").addEventListener("click",e=>{
     const b=e.target.closest(".chip"); if(!b) return;
     $("weaponChips").querySelectorAll(".chip").forEach(c=>c.classList.remove("sel"));

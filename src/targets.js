@@ -88,6 +88,18 @@ export function flashHitmarker(text){
   clearTimeout(hitInfoTimer);
   hitInfoTimer=setTimeout(()=>$("hitinfo").classList.remove("show"),900);
 }
+/* 着弾表示（射撃練習のみ）: 自分の撃ったBBが着弾した距離と、そのときの残存エネルギー。
+   初速時のエネルギーと比べてどれだけ減衰したかが分かるよう到達エネルギーもJで出す */
+const IMPACT_LABELS={target:"命中", ground:"着弾", obstacle:"命中(障害物)", stall:"失速"};
+export function onImpact({dist, energy, speed, kind}){
+  if (S.mode!=="range") return;
+  $("impactDist").textContent = dist.toFixed(1)+"m";
+  $("impactEnergy").textContent = energy.toFixed(3)+" J";
+  $("impactSpeed").textContent = speed.toFixed(0)+" m/s";
+  $("impactKind").textContent = IMPACT_LABELS[kind]||kind;
+  const el=$("impactRow");
+  el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash");
+}
 export function onTargetHit(tg, bb, zn){
   tg.alive=false;
   const dist=bb.pos.distanceTo(bb.start);
@@ -113,7 +125,8 @@ export function onTargetHit(tg, bb, zn){
   }
   S.score+=pts; S.hits++;
   spawnParticles(bb.pos, tg.type==="plate"?0xffe9a8:0xd8c9a0, 6, 1.6);
-  flashHitmarker(`+${pts}${label?" "+label:""}　${dist.toFixed(1)}m`);
+  const impactE=0.5*(S.massG*1e-3)*bb.vel.lengthSq();
+  flashHitmarker(`+${pts}${label?" "+label:""}　${dist.toFixed(1)}m / ${impactE.toFixed(2)}J`);
   updateScoreHUD();
 }
 export function updateScoreHUD(){

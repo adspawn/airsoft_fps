@@ -6,6 +6,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "../libs/loaders/GLTFLoader.js";
 import { S, RT, $, camera, renderer, scene, player, weapon, keys, obstacles,
   EDIT_AREA, FIELD, VS_ARENA, ENEMY_FLAG, PLAYER_FLAG, spawnPoints, pvp, targets, bots, MAG_SIZE,
+  WIND, updateWindVector, windDirName,
   RED_PLAYER_SPAWNS, BLUE_PLAYER_SPAWNS, RED_NPC_SPAWNS, BLUE_NPC_SPAWNS,
   sightCal, sightCalOrbit, edit } from "./state.js";
 import { simulate2D, solveOptimalSpin } from "./physics.js";
@@ -13,7 +14,7 @@ import {
   PHYS_DT, bbPool, spawnBB, killBB, stepBBs, updateTrails, registerHitHandlers,
 } from "./bb.js";
 import { updateParticles } from "./effects.js";
-import { updateTargets, onTargetHit, startChallenge, updateChallenge } from "./targets.js";
+import { updateTargets, onTargetHit, onImpact, startChallenge, updateChallenge } from "./targets.js";
 import {
   gun, gunProcedural, GUN_ADS, GUN_HIP, loadGunModel, enterSightCal, exitSightCal, sightCalRefresh,
   applySightCalibration, loadSightCalib, currentMuzzleLocal, muzzleInGunLocal, updateOrbitCamera,
@@ -42,7 +43,7 @@ import { applyMode, wireMenuUI } from "./menu.js";
 loadGunModel(GLTFLoader);
 
 /* ---- BB弾ヒット処理の配線（bb.jsは他モジュールへ依存しないよう後から登録） ---- */
-registerHitHandlers({ onBotHit, onPvpBotHit, onPlayerHit, onPvpPlayerHit, onTargetHit });
+registerHitHandlers({ onBotHit, onPvpBotHit, onPlayerHit, onPvpPlayerHit, onTargetHit, onImpact });
 
 /* ---- UIイベントの配線 ---- */
 wireSightCalUI();
@@ -78,6 +79,7 @@ window.__game={S, weapon, player, bbPool, targets, bots, spawnBB, simulate2D, so
   get MUZZLE_LOCAL_MODEL(){return MUZZLE_LOCAL_MODEL;},
   get AIM_PX_X(){return AIM_PX_X;}, get AIM_PX_Y(){return AIM_PX_Y;},
   EDIT_AREA, FIELD, exportCustomMap, importCustomMapData, saveCustomMap,
+  WIND, updateWindVector, windDirName,
   onBotHit, endMatch, ENEMY_FLAG, PLAYER_FLAG,
   stepN:(n)=>{ for(let i=0;i<n;i++) stepBBs(PHYS_DT); },
   setNow:(t)=>{ RT.gNow=t; },

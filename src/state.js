@@ -22,6 +22,9 @@ export const S = {
   vsNpcCountRed:2, vsDiffRed:"normal",             // チーム戦: 🔴赤(プレイヤーと同じチーム)のNPC
   vsNpcCountBlue:3, vsDiffBlue:"normal",           // チーム戦: 🔵青(敵チーム)のNPC
   ricochetHit:true,   // 跳弾(壁で反射)は常に発生。これは「跳ねた後のBBがヒット判定を持つか」の設定
+  /* 風: windSpeed[m/s] と windDir[度] = 風が吹いて「いく」方位（0°=北=-Z、90°=東=+X）。
+     射撃練習場は-Z(北)向きに的が並ぶので、0°=追い風 / 180°=向かい風 / 90°=右へ流す横風 */
+  windSpeed:0, windDir:90,
   spinRps:170, optimalSpin:null, zeroIn:null, maxRange:null,
   score:0, shots:0, hits:0,
   challenge:{active:false, tLeft:0},
@@ -39,6 +42,20 @@ export function vsFriendly(teamA, teamB){
 export const MAG_SIZE = 60;
 export const EYE_H = 1.6, CROUCH_H = 1.05;
 export const UP = new THREE.Vector3(0,1,0);
+
+/* 風速ベクトル(m/s, ワールド座標)。S.windSpeed/windDirから計算し、
+   BB弾の抗力・マグヌス力は「対気速度(弾速-風速)」で評価される */
+export const WIND = new THREE.Vector3(0,0,0);
+export function updateWindVector(){
+  const rad = S.windDir*Math.PI/180;
+  // 0°=北=-Z、90°=東=+X（風が吹いていく向き）
+  WIND.set(Math.sin(rad)*S.windSpeed, 0, -Math.cos(rad)*S.windSpeed);
+}
+/* 方位角(度)を8方位の日本語表記へ */
+export function windDirName(deg){
+  const names=["北","北東","東","南東","南","南西","西","北西"];
+  return names[Math.round(((deg%360)+360)%360/45)%8];
+}
 
 /* 跨モジュールで再代入される実行時状態を一箇所に集約
    （ESモジュールはimportした束縛への再代入を許さないため、値そのものではなく

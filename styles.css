@@ -51,6 +51,12 @@ body.scoped #scopeOverlay{opacity:1}
   -webkit-mask:radial-gradient(circle at 50% 50%,transparent 0,transparent 10px,#000 11px,#000 100%);
   mask:radial-gradient(circle at 50% 50%,transparent 0,transparent 10px,#000 11px,#000 100%)}
 
+/* 着弾表示: 新しい着弾のたびに一瞬ハイライトして更新されたことを分かりやすくする */
+#impactRow,#windRow{font-size:12px;color:var(--dim);margin-top:2px}
+#impactRow b,#windRow b{color:var(--text);font-weight:700}
+#impactRow.flash{animation:impactFlash .5s ease-out}
+@keyframes impactFlash{0%{color:var(--accent)}100%{color:var(--dim)}}
+
 #hitmarker{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
   width:34px;height:34px;opacity:0}
 #hitmarker::before,#hitmarker::after{content:"";position:absolute;left:50%;top:50%;

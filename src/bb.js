@@ -5,7 +5,7 @@
    後から登録するコールバック経由で行う（main.js が全モジュール読込み後に配線する）。
    ============================================================ */
 import { THREE, S, scene, obstacles, RT, UP, bots, pvp, pvpFriendly, player, targets,
-  vsMyTeam, vsFriendly } from "./state.js";
+  vsMyTeam, vsFriendly, WIND } from "./state.js";
 import { ENV, KMAG, SPIN_FRIC, cdLoth, cdMorrison } from "./physics.js";
 import { spawnParticles } from "./effects.js";
 
@@ -84,7 +84,8 @@ function reflectBB(bb, o){
   spawnParticles(bb.pos, 0xdddddd, 3, 0.8);
 }
 
-const _acc=new THREE.Vector3(), _mag=new THREE.Vector3(), _seg=new THREE.Vector3();
+const _acc=new THREE.Vector3(), _mag=new THREE.Vector3(), _seg=new THREE.Vector3(),
+      _rel=new THREE.Vector3();
 
 /* 線分-球ヒット判定（トンネリング防止） */
 function segHitSphere(p0, p1, cx, cy, cz, r){
@@ -186,7 +187,19 @@ export function resolveHipAimPoint(camPos, camDir, out){
    全モジュール読込み後に registerHitHandlers() で配線する */
 let H = {
   onBotHit:()=>{}, onPvpBotHit:()=>{}, onPlayerHit:()=>{}, onPvpPlayerHit:()=>{}, onTargetHit:()=>{},
+  onImpact:()=>{},
 };
+/* 自分が撃ったBBが着弾（地面/障害物/的）したとき、着弾距離と残存エネルギーを通知する。
+   射撃練習の着弾表示に使う */
+function reportImpact(bb, kind){
+  if (bb.owner!=="player") return;
+  H.onImpact({
+    dist: bb.pos.distanceTo(bb.start),
+    energy: 0.5*(S.massG*1e-3)*bb.vel.lengthSq(),
+    speed: bb.vel.length(),
+    kind,
+  });
+}
 export function registerHitHandlers(handlers){ Object.assign(H, handlers); }
 
 export function stepBBs(dt){
@@ -195,11 +208,15 @@ export function stepBBs(dt){
   const cdf = S.drag==="loth"? cdLoth : cdMorrison;
   for (const bb of bbPool){
     if (!bb.alive) continue;
-    const v = bb.vel.length();
+    /* 空力（抗力・マグヌス）は対地速度ではなく「対気速度 = 弾速 - 風速」で決まる。
+       これにより横風ではBBが風下へ流され、向かい風/追い風では飛距離が変化する。
+       重力は対地・対気に関係なくそのまま働く */
+    _rel.subVectors(bb.vel, WIND);
+    const v = _rel.length();
     // 並進: 抗力 + マグヌス + 重力
     const FdOverV = 0.5*cdf(v)*ENV.rho*ENV.A*v;
-    _mag.crossVectors(bb.axis, bb.vel).multiplyScalar(KMAG*bb.w);
-    _acc.copy(bb.vel).multiplyScalar(-FdOverV).add(_mag).divideScalar(m);
+    _mag.crossVectors(bb.axis, _rel).multiplyScalar(KMAG*bb.w);
+    _acc.copy(_rel).multiplyScalar(-FdOverV).add(_mag).divideScalar(m);
     _acc.y -= ENV.g;
     bb.vel.addScaledVector(_acc, dt);
     bb.prev.copy(bb.pos);
@@ -210,10 +227,11 @@ export function stepBBs(dt){
     bb.w = Math.max(0, bb.w - SPIN_FRIC*Cf*Math.sqrt(v*v+(ENV.c*ENV.R*bb.w)**2)*bb.w/I*dt);
     bb.t += dt;
 
-    if (bb.t>12 || v<3){ killBB(bb); continue; }
+    if (bb.t>12 || v<3){ reportImpact(bb,"stall"); killBB(bb); continue; }
     // 地面
     if (bb.pos.y<=0.004){
       spawnParticles(bb.pos, 0x9c8a62, 5, 1.2);
+      reportImpact(bb,"ground");
       killBB(bb); continue;
     }
     // 障害物
@@ -227,7 +245,9 @@ export function stepBBs(dt){
       if (bb.bounces<RICOCHET_MAX_BOUNCES && v>RICOCHET_MIN_SPEED){
         reflectBB(bb, hitO);
       } else {
-        spawnParticles(bb.pos, 0xcccccc, 4, 1); killBB(bb);
+        spawnParticles(bb.pos, 0xcccccc, 4, 1);
+        reportImpact(bb,"obstacle");
+        killBB(bb);
       }
       continue;
     }
@@ -306,6 +326,7 @@ export function stepBBs(dt){
         if (!tg.alive) continue;
         for (const zn of tg.zones){
           if (segHitSphere(bb.prev,bb.pos,zn.world.x,zn.world.y,zn.world.z,zn.r)){
+            reportImpact(bb,"target");
             H.onTargetHit(tg, bb, zn);
             killBB(bb); done=true; break;
           }
