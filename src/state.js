@@ -63,6 +63,7 @@ export function windDirName(deg){
 export const RT = {
   gNow:0, physAcc:0, invulnUntil:0,
   locked:false, ads:false, firing:false, dying:false,
+  touchPlay:false,   /* スマホ等: ポインタロックなしでプレイ中 */
   appliedMode:null,
 };
 

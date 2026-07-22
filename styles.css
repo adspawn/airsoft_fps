@@ -153,6 +153,58 @@ select{background:#1a2230;color:var(--text);border:1px solid rgba(255,255,255,.1
 #credit{margin-top:14px;font-size:11px;color:var(--dim)}
 #credit a{color:#58a6ff;text-decoration:none;pointer-events:auto}
 
+/* ===== スマホ / タッチ操作 ===== */
+#mobileControls{display:none;position:fixed;inset:0;pointer-events:none;z-index:16;
+  touch-action:none}
+body.touch-play #mobileControls{display:block;pointer-events:auto}
+#touchLookZone{position:absolute;top:0;right:0;width:52%;height:100%;pointer-events:none;
+  touch-action:none}
+body.touch-play #touchLookZone{pointer-events:auto}
+#mobStickWrap{position:absolute;left:max(12px,env(safe-area-inset-left));
+  bottom:max(16px,env(safe-area-inset-bottom));pointer-events:auto}
+#mobStickBase{width:128px;height:128px;border-radius:50%;
+  background:rgba(0,0,0,.28);border:2px solid rgba(255,255,255,.22);
+  position:relative;touch-action:none}
+#mobStickKnob{position:absolute;left:50%;top:50%;width:52px;height:52px;border-radius:50%;
+  transform:translate(-50%,-50%);background:rgba(255,255,255,.35);
+  border:2px solid rgba(255,255,255,.5);box-shadow:0 2px 8px rgba(0,0,0,.35)}
+#mobActions{position:absolute;right:max(12px,env(safe-area-inset-right));
+  bottom:max(16px,env(safe-area-inset-bottom));width:min(42vw,200px);height:min(42vw,200px);
+  pointer-events:none}
+body.touch-play #mobActions{pointer-events:auto}
+.mobBtn{border:none;font-weight:800;cursor:pointer;touch-action:none;
+  -webkit-tap-highlight-color:transparent;user-select:none;color:#fff;
+  text-shadow:0 1px 2px rgba(0,0,0,.6)}
+.mobBtn:active{filter:brightness(1.15)}
+.mobPause{position:absolute;top:max(12px,env(safe-area-inset-top));
+  left:max(12px,env(safe-area-inset-left));width:44px;height:44px;border-radius:10px;
+  background:rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.25);font-size:20px;
+  pointer-events:auto;z-index:17}
+body.touch-play .mobPause{pointer-events:auto}
+.mobFire{position:absolute;right:0;bottom:0;width:88px;height:88px;border-radius:50%;
+  background:radial-gradient(circle at 35% 30%,#ffb347,var(--accent) 55%,#c46a00);
+  border:3px solid rgba(255,255,255,.45);box-shadow:0 4px 14px rgba(0,0,0,.45);
+  font-size:0}
+.mobFire::after{content:"";position:absolute;inset:22%;border-radius:50%;
+  border:3px solid rgba(255,255,255,.55)}
+.mobSmall{position:absolute;min-width:44px;height:44px;padding:0 10px;border-radius:22px;
+  font-size:12px;background:rgba(0,0,0,.42);border:1px solid rgba(255,255,255,.28)}
+#mobAds{right:96px;bottom:8px}
+#mobJump{right:0;bottom:96px}
+#mobCrouch{right:52px;bottom:52px}
+#mobReload{right:96px;bottom:52px}
+#mobMode{right:0;bottom:148px;font-size:11px}
+body.touch-play #hintBar{display:none}
+body.touch-play #hopPanel{display:none}
+body.touch-play #scoreboard{top:max(56px,env(safe-area-inset-top));left:max(8px,env(safe-area-inset-left));
+  max-width:calc(100vw - 120px);font-size:11px;padding:8px 10px}
+body.touch-play #scoreboard .big{font-size:18px}
+body.touch-play #ammoPanel{right:max(8px,env(safe-area-inset-right));
+  bottom:max(168px, calc(16px + env(safe-area-inset-bottom)))}
+body.touch-play #ammo{font-size:28px}
+body.touch-play canvas{touch-action:none}
+body.touch-play{touch-action:none;overscroll-behavior:none}
+
 /* ===== サイト調整（デバッグ）パネル ===== */
 #sightCalPanel{position:fixed;top:16px;right:16px;width:340px;max-height:94vh;
   overflow-y:auto;display:none;z-index:20;pointer-events:auto}

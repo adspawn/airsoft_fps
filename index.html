@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>エアソフトFPS — BB弾道シミュレーション搭載</title>
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <link rel="stylesheet" href="styles.css">
 </head>
 
@@ -66,6 +66,24 @@
 </div>
 
 <div id="scopeOverlay"></div>
+
+<!-- スマホ用オンレイ操作（touch-device のときのみ表示） -->
+<div id="mobileControls" aria-hidden="true">
+  <div id="touchLookZone"></div>
+  <button type="button" id="mobPause" class="mobBtn mobPause" title="メニュー">☰</button>
+  <div id="mobStickWrap">
+    <div id="mobStickBase"><div id="mobStickKnob"></div></div>
+  </div>
+  <div id="mobActions">
+    <button type="button" id="mobMode" class="mobBtn mobSmall">連射</button>
+    <button type="button" id="mobAds" class="mobBtn mobSmall">ADS</button>
+    <button type="button" id="mobReload" class="mobBtn mobSmall">R</button>
+    <button type="button" id="mobCrouch" class="mobBtn mobSmall">屈</button>
+    <button type="button" id="mobJump" class="mobBtn mobSmall">跳</button>
+    <button type="button" id="mobFire" class="mobBtn mobFire" aria-label="射撃"></button>
+  </div>
+</div>
+
 <div id="sightCalCrosshair"></div>
 <div id="sightCalPanel" class="panel">
   <h2>🔧 サイト調整（デバッグ）</h2>
@@ -437,6 +455,9 @@
       </div>
     </div>
     <button id="startBtn">クリックして開始</button>
+    <div id="mobileHelp" class="sub" style="display:none;margin-top:10px;line-height:1.6">
+      左スティックで移動・右半分をドラッグで視点・右下ボタンで射撃／ADS。マップ作成・サイト調整はPC向けのため省略しています。
+    </div>
 
     <div id="controls">
       <div><b>WASD</b> — 移動</div>

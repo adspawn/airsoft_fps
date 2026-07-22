@@ -12,6 +12,7 @@ import { spawnParticles, showMsg } from "./effects.js";
 import { sndPing, sndShotFar, sndHitMe } from "./sound.js";
 import { spawnBB } from "./bb.js";
 import { applySpread } from "./player.js";
+import { requestPlayLock } from "./mobile.js";
 import { gunProcedural, gunCorrected } from "./gun.js";
 import { flashHitmarker } from "./targets.js";
 
@@ -547,7 +548,10 @@ export function endMatch(win, reason){
     : S.vsRuleset==="elim" ? `🏆 殲滅完了！勝利！（撃破 ${S.vs.you}）`
     : `🏆 生き残った！勝利！（撃破 ${S.vs.you}）`;
   showMsg(win? winMsg : `敗北…（${reason}）`, 4);
-  setTimeout(()=>{ if (document.pointerLockElement) document.exitPointerLock(); }, 2800);
+  setTimeout(()=>{
+    if (RT.touchPlay) return;
+    if (document.pointerLockElement) document.exitPointerLock();
+  }, 2800);
 }
 /* 対戦モードの毎フレーム処理: フラッグ戦のみ旗アニメ・奪取判定・HUD距離を扱う */
 export function updateVsRound(dt,now){

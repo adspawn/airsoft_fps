@@ -16,6 +16,7 @@ import { spawnParticles, showMsg } from "./effects.js";
 import { sndHitMe, sndShotFar } from "./sound.js";
 import { spawnBB } from "./bb.js";
 import { applySpread, updateAmmoHUD } from "./player.js";
+import { requestPlayLock } from "./mobile.js";
 import { buildBotMesh, spawnBots, DIFF_PARAMS, DIFF_NAMES, losClear, resolveBotCollision,
   pickWp, angleDelta, startDeathSequence, endDeathSequence, genVsField, genRandomVsProps,
   loadCustomMap, setBotSeek, setBotHold, yukaUpdate, syncBotFromVehicle } from "./bots.js";
@@ -659,7 +660,7 @@ export function pvpStartMatch({players, gameType, npcCount, npcDiff, npcCountRed
   const teamTxt = myTeam ? `（あなた: ${myTeam==="red"?"🔴赤":"🔵青"}）` : "";
   $("pvpGoalLine").textContent = `🌐 オンラインPVP ｜ ${PVP_GT_NAMES[pvp.gameType]||pvp.gameType}${teamTxt}`;
   updatePvpScoreHUD();
-  renderer.domElement.requestPointerLock();
+  requestPlayLock();
 }
 function pvpApplyRemoteState({id,pos,yaw}){
   const rp=pvp.players.get(id);
@@ -723,7 +724,10 @@ function pvpOnGameOver({winnerId, winnerName, winnerTeam, scores}){
     msg = winnerName ? (won? `🏆 優勝！（${winnerName}）` : `試合終了 — 優勝: ${winnerName}`) : "試合終了（引き分け）";
   }
   showMsg(msg, 5);
-  setTimeout(()=>{ if (document.pointerLockElement) document.exitPointerLock(); }, 3200);
+  setTimeout(()=>{
+    if (RT.touchPlay) return;
+    if (document.pointerLockElement) document.exitPointerLock();
+  }, 3200);
 }
 export function updatePvpRemotes(dt){
   if (S.mode!=="pvp") return;
@@ -774,7 +778,7 @@ export function wirePvpLobbyUI(){
   // 離脱せずポインタロックを取り直すだけで元の試合に戻れる
   $("pvpResumeBtn").addEventListener("click",()=>{
     $("pvpLobby").classList.remove("show");
-    renderer.domElement.requestPointerLock();
+    requestPlayLock();
   });
   $("pvpReadyBtn").addEventListener("click",()=>{
     if (!pvp.currentRoom) return;

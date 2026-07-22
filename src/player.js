@@ -9,6 +9,8 @@ import { spawnBB, resolveHipAimPoint } from "./bb.js";
 import { gun, gunCorrected, MUZZLE_LOCAL, MUZZLE_LOCAL_MODEL, muzzleInGunLocal,
   AIM_PX_X, AIM_PX_Y, exitSightCal, currentWeapon } from "./gun.js";
 import { p2pBroadcast, p2pSendToHost } from "./p2p.js";
+import { detectTouchDevice, initTouchMenuHints, requestPlayLock, setPlayLocked,
+  wireMobileControls } from "./mobile.js";
 
 export const LEAN_MAX_ROLL = 12*Math.PI/180;   // 最大ロール角
 export const LEAN_MAX_OFFSET = 0.4;            // 最大横オフセット(m)
@@ -266,7 +268,11 @@ export function wireInput({ edit, editPlace, editDelete, makeGhost, updateEditHU
     // メニューキーは全モード共通で M（Escはブラウザ既定のポインタロック解除としてそのまま併用可）
     if (e.code==="KeyM"){
       if (sightCal.active){ exitSightCal(); return; }
-      if (RT.locked){ document.exitPointerLock(); return; }
+      if (RT.locked){
+        if (RT.touchPlay) pauseToMenu();
+        else document.exitPointerLock();
+        return;
+      }
     }
     if (!RT.locked) return;
     if (S.mode==="edit"){
@@ -308,6 +314,7 @@ export function wireInput({ edit, editPlace, editDelete, makeGhost, updateEditHU
       return;
     }
     if (!RT.locked) return;
+    if (RT.touchPlay) return;
     if (S.mode==="edit"){
       if (e.button===0 && edit.ghost && edit.ghost.visible && edit.valid)
         editPlace(edit.sel, edit.gx, edit.gy, edit.gz, edit.o);
@@ -350,13 +357,27 @@ export function wireInput({ edit, editPlace, editDelete, makeGhost, updateEditHU
       return;
     }
     if (!RT.locked) return;
+    if (RT.touchPlay) return;
     const s=0.0022*S.sens*(RT.ads?0.65:1);
     player.yaw   -= e.movementX*s;
     player.pitch -= e.movementY*s;
     player.pitch = THREE.MathUtils.clamp(player.pitch, -Math.PI/2+.01, Math.PI/2-.01);
   });
 
-  /* ポインタロック */
+  function pauseToMenu(){
+    setPlayLocked(false);
+    $("menu").style.display = "";
+    if (S.mode === "pvp"){
+      renderPvpRoomView();
+      $("pvpLobby").classList.add("show");
+    }
+  }
+
+  detectTouchDevice();
+  initTouchMenuHints();
+  wireMobileControls({ startReload, tryShoot, pauseToMenu });
+
+  /* ポインタロック / タッチプレイ開始 */
   $("startBtn").addEventListener("click",()=>{
     audio();
     if (S.mode==="pvp"){
@@ -366,12 +387,17 @@ export function wireInput({ edit, editPlace, editDelete, makeGhost, updateEditHU
       pvpConnect();
       return;
     }
+    if (S.mode==="edit" && document.body.classList.contains("touch-device")){
+      sndClick(280,.2);
+      return;
+    }
     if (S.mode!==RT.appliedMode || (S.mode==="vs" && !S.vs.active)){
       applyMode(); RT.appliedMode=S.mode;
     }
-    renderer.domElement.requestPointerLock();
+    requestPlayLock();
   });
   document.addEventListener("pointerlockchange",()=>{
+    if (RT.touchPlay) return;
     RT.locked = document.pointerLockElement===renderer.domElement;
     document.body.classList.toggle("locked",RT.locked);
     if (!RT.locked) clearKeys();   // ロック解除の理由を問わず、押しっぱなし状態を必ずクリア
