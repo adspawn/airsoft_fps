@@ -55,8 +55,10 @@ wireInput({
   startChallenge, sightCalOrbit, updateOrbitCamera, applyMode, pvpConnect, renderPvpRoomView,
 });
 
-/* ---- URL共有型P2P: ?room=xxx が付いている場合は自動でホストへ接続する ---- */
-pvpAutoJoinFromUrl();
+/* ---- URL共有型P2P: ?room=xxx が付いている場合は自動でホストへ接続する ----
+   オンラインPVPは現在COMING SOON（メニューから選択不可）のため自動参加も無効化している。
+   公開時はこの1行を戻せばURL共有での参加が復活する */
+// pvpAutoJoinFromUrl();
 
 /* ---- サイト調整（デバッグ）モードは通常メニューには表示せず、
    専用URL(?sightcal を付けてアクセス)からのみ入れる ---- */

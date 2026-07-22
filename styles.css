@@ -127,6 +127,10 @@ body.scoped #scopeOverlay{opacity:1}
 .setRow{display:flex;align-items:center;gap:12px;margin:12px 0;flex-wrap:wrap}
 .setRow label{width:110px;font-size:13px;color:var(--dim);flex-shrink:0}
 .chips{display:flex;gap:6px;flex-wrap:wrap}
+/* 準備中（COMING SOON）のモード: 押せないことが分かるよう淡色＋バッジ表示 */
+.chip.soon{opacity:.45;cursor:not-allowed}
+.chip.soon span{margin-left:6px;font-size:9px;letter-spacing:.5px;font-weight:700;
+  padding:1px 5px;border-radius:4px;background:var(--accent);color:#141414;vertical-align:1px}
 .chip{padding:5px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.18);
   background:transparent;color:var(--text);font-size:12px;cursor:pointer}
 .chip.sel{background:var(--accent);border-color:var(--accent);color:#141414;font-weight:700}

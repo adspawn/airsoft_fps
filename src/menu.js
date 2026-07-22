@@ -157,7 +157,8 @@ export function wireMenuUI(){
     $("rowWeapon").style.display = S.mode==="edit" ? "none" : "flex";
     $("rowRicochet").style.display = S.mode==="edit" ? "none" : "flex";
   }
-  const modeBtns={range:$("modeRange"), vs:$("modeVs"), edit:$("modeEdit"), pvp:$("modePvp")};
+  // オンラインPVPは準備中（COMING SOON）のため選択不可。ボタンは残して告知だけ出す
+  const modeBtns={range:$("modeRange"), vs:$("modeVs"), edit:$("modeEdit")};
   for (const [m,btn] of Object.entries(modeBtns)){
     btn.addEventListener("click",()=>{
       S.mode=m;

@@ -30,8 +30,8 @@ export const WEAPONS = {
     name:"スナイパーライフル", file:"hunting_rifle.glb", len:1.10,
     modes:["SEMI"], pellets:1, scope:true,
     cal:{pitchDeg:0, yawDeg:0, rollDeg:0, crossX:0, crossY:0, fovDeg:12,
-         muzzleX:0, muzzleY:0, muzzleZ:0, crossSize:0, circleSize:0,
-         hipX:0.235, hipY:-0.225, hipZ:-0.35, spreadHip:0.70, spreadAds:0.02},
+         muzzleX:0, muzzleY:0, muzzleZ:0.603, crossSize:0, circleSize:0,
+         hipX:0.175, hipY:-0.225, hipZ:-0.35, spreadHip:0.70, spreadAds:0.02},
   },
 };
 export function currentWeapon(){ return WEAPONS[S.weaponType]||WEAPONS.ar15; }
