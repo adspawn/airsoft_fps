@@ -45,10 +45,28 @@ export function sndClick(freq=700,vol=.25){
   g.gain.setValueAtTime(vol,t); g.gain.exponentialRampToValueAtTime(.001,t+.03);
   o.connect(g).connect(c.destination); o.start(t); o.stop(t+.04);
 }
+const RELOAD_SFX_URL = encodeURI("assets/サブマシンガンの弾倉をセット.mp3");
+let reloadBuf=null, reloadBufLoading=null;
+function loadReloadBuf(){
+  if (reloadBuf) return Promise.resolve(reloadBuf);
+  if (reloadBufLoading) return reloadBufLoading;
+  const c=audio();
+  reloadBufLoading=fetch(RELOAD_SFX_URL)
+    .then(r=>r.arrayBuffer())
+    .then(ab=>c.decodeAudioData(ab))
+    .then(buf=>{ reloadBuf=buf; reloadBufLoading=null; return buf; })
+    .catch(err=>{ reloadBufLoading=null; console.warn("reload sfx load failed", err); });
+  return reloadBufLoading;
+}
 export function sndReload(){
-  sndClick(420,.3);
-  setTimeout(()=>sndClick(300,.3), 600);
-  setTimeout(()=>sndClick(900,.35), 1300);
+  const c=audio();
+  loadReloadBuf().then(buf=>{
+    if (!buf) return;
+    const src=c.createBufferSource(); src.buffer=buf;
+    const g=c.createGain(); g.gain.value=.7;
+    src.connect(g).connect(c.destination);
+    src.start();
+  });
 }
 export function sndTink(dist){
   const c=audio(), t=c.currentTime + dist/ENV.snd;
