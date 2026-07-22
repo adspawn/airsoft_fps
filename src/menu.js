@@ -2,7 +2,7 @@
    メインメニュー設定・モード切替（applyMode）
    ============================================================ */
 import { $, S, RT, clearKeys, weapon, MAG_SIZE, EYE_H, player, targets, pvp,
-  VS_ARENA, PLAYER_FLAG, RED_NPC_SPAWNS, BLUE_NPC_SPAWNS } from "./state.js";
+  VS_ARENA, PLAYER_FLAG, RED_NPC_SPAWNS, BLUE_NPC_SPAWNS, RED_PLAYER_SPAWNS } from "./state.js";
 import { solveOptimalSpin } from "./physics.js";
 import { bbPool, killBB } from "./bb.js";
 import { gun } from "./gun.js";
@@ -12,6 +12,9 @@ import { updateAmmoHUD, onHopChanged, onLoadoutChanged } from "./player.js";
 import { clearBots, clearVsField, genVsField, spawnBots, endDeathSequence, updateVsHUD,
   DIFF_NAMES } from "./bots.js";
 import { pvpClearAvatars } from "./pvp.js";
+
+/* 対戦(NPC)・オンラインPVP共通のルール名（両モードで同じ3ルールを使う） */
+export const VS_RULE_NAMES={br:"バトルロワイアル", elim:"殲滅戦", flag:"フラッグ戦"};
 
 /* モード適用（開始ボタンから、PVPは試合開始イベントから） */
 export function applyMode(){
@@ -56,10 +59,23 @@ export function applyMode(){
     genVsField();                       // バリケード配置（カスタム/ランダム）+ フラッグ設置（フラッグ戦のみ）
     S.vs.you=0; S.vs.active=true;
     RT.invulnUntil=performance.now()/1000+2;
-    spawnBots(S.vsNpcCount);
+    const teamed = S.vsRuleset==="elim" || S.vsRuleset==="flag";
+    if (teamed){
+      // オンラインPVPと同じ構成: プレイヤーは🔴赤チーム。赤=味方NPC / 青=敵NPC を陣地リングに配置
+      if (S.vsNpcCountRed>0) spawnBots(S.vsNpcCountRed,
+        {team:"red", diff:S.vsDiffRed, spawnSet:RED_NPC_SPAWNS, idOffset:0});
+      if (S.vsNpcCountBlue>0) spawnBots(S.vsNpcCountBlue,
+        {team:"blue", diff:S.vsDiffBlue, spawnSet:BLUE_NPC_SPAWNS, idOffset:S.vsNpcCountRed});
+      player.pos.set(RED_PLAYER_SPAWNS[0][0], 0, RED_PLAYER_SPAWNS[0][1]);
+    } else {
+      spawnBots(S.vsNpcCount, {diff:S.diff});
+    }
     updateVsHUD();
-    const ruleName = S.vsRuleset==="elim" ? "殲滅戦" : "フラッグ戦";
-    $("vsInfo").textContent=`${ruleName} ｜ NPC: ${DIFF_NAMES[S.diff]}×${S.vsNpcCount} ｜ 被弾=即死`;
+    const ruleName = VS_RULE_NAMES[S.vsRuleset]||S.vsRuleset;
+    const npcTxt = teamed
+      ? `NPC 🔴${S.vsNpcCountRed}体(${DIFF_NAMES[S.vsDiffRed]})／🔵${S.vsNpcCountBlue}体(${DIFF_NAMES[S.vsDiffBlue]})`
+      : `NPC: ${DIFF_NAMES[S.diff]}×${S.vsNpcCount}`;
+    $("vsInfo").textContent=`${ruleName} ｜ ${npcTxt} ｜ 被弾=即死`;
   } else if (editing){
     enterEditMode();
   } else if (pvpMode){
@@ -129,7 +145,12 @@ export function wireMenuUI(){
     const range=S.mode==="range", vs=S.mode==="vs";
     for (const id of ["rowMass","rowV0","rowCycle"]) $(id).style.display=range?"flex":"none";
     $("menuEnergy").style.display=range?"block":"none";
-    for (const id of ["rowVsRuleset","rowDiff","rowNpcCount","rowVsMap"]) $(id).style.display=vs?"flex":"none";
+    for (const id of ["rowVsRuleset","rowVsMap"]) $(id).style.display=vs?"flex":"none";
+    // オンラインPVPのロビーと同じ構成: バトルロワイアル=単一NPC設定 / チーム戦=🔴🔵個別設定
+    const teamed = S.vsRuleset==="elim" || S.vsRuleset==="flag";
+    for (const id of ["rowNpcCount","rowDiff"]) $(id).style.display=(vs&&!teamed)?"flex":"none";
+    for (const id of ["rowVsNpcRed","rowVsNpcRedDiff","rowVsNpcBlue","rowVsNpcBlueDiff"])
+      $(id).style.display=(vs&&teamed)?"flex":"none";
     $("rowRicochet").style.display = S.mode==="edit" ? "none" : "flex";
   }
   const modeBtns={range:$("modeRange"), vs:$("modeVs"), edit:$("modeEdit"), pvp:$("modePvp")};
@@ -161,11 +182,30 @@ export function wireMenuUI(){
     S.vsRuleset=b.dataset.r;
     $("vsRulesetChips").querySelectorAll(".chip").forEach(c=>c.classList.remove("sel"));
     b.classList.add("sel");
+    updateMenuRows();   // ルール変更でNPC設定行（単一↔🔴🔵個別）を切り替える
   });
   $("npcCountSlider").addEventListener("input",e=>{
     S.vsNpcCount=+e.target.value;
     $("npcCountVal").textContent=S.vsNpcCount+"体";
   });
+  $("vsNpcCountRedSlider").addEventListener("input",e=>{
+    S.vsNpcCountRed=+e.target.value;
+    $("vsNpcCountRedVal").textContent=S.vsNpcCountRed+"体";
+  });
+  $("vsNpcCountBlueSlider").addEventListener("input",e=>{
+    S.vsNpcCountBlue=+e.target.value;
+    $("vsNpcCountBlueVal").textContent=S.vsNpcCountBlue+"体";
+  });
+  function wireVsDiffChips(id, key){
+    $(id).addEventListener("click",e=>{
+      const b=e.target.closest(".chip"); if(!b) return;
+      S[key]=b.dataset.d;
+      $(id).querySelectorAll(".chip").forEach(c=>c.classList.remove("sel"));
+      b.classList.add("sel");
+    });
+  }
+  wireVsDiffChips("vsDiffRedChips","vsDiffRed");
+  wireVsDiffChips("vsDiffBlueChips","vsDiffBlue");
   updateMenuEnergy();
 
   /* 初回: 適正ホップを計算して自動セット */

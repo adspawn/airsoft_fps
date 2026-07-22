@@ -5,7 +5,8 @@
    難易度・射撃タイミング)は自前のFSMという分担。
    ============================================================ */
 import { THREE, S, scene, camera, $, RT, obstacles, VS_ARENA, EDIT_AREA, currentBounds,
-  coverPoints, spawnPoints, ENEMY_FLAG, PLAYER_FLAG, crateMat, bots, player, pvp } from "./state.js";
+  coverPoints, spawnPoints, ENEMY_FLAG, PLAYER_FLAG, crateMat, bots, player, pvp,
+  vsMyTeam, vsFriendly } from "./state.js";
 import * as YUKA from "../libs/yuka.module.js";
 import { spawnParticles, showMsg } from "./effects.js";
 import { sndPing, sndShotFar, sndHitMe } from "./sound.js";
@@ -270,8 +271,8 @@ function ensureDeathBody(team){
 }
 export function getDeathBodyPivot(){ return deathBodyPivot; }
 export function startDeathSequence(){
-  // PVPチーム戦では倒れる自分の身代わりも自チームカラーで表示
-  ensureDeathBody(S.mode==="pvp" ? pvp.myTeam : null);
+  // チーム戦では倒れる自分の身代わりも自チームカラーで表示（PVP・対戦(NPC)共通）
+  ensureDeathBody(S.mode==="pvp" ? pvp.myTeam : S.mode==="vs" ? vsMyTeam() : null);
   RT.dying=true; deathT=0;
   deathBodyPivot.position.set(player.pos.x, player.pos.y, player.pos.z);
   deathBodyPivot.rotation.set(0, player.yaw, 0);
@@ -302,10 +303,11 @@ export function updateDeathCam(dt){
 
 export function pickWp(bot){
   const r=Math.random();
-  // フラッグ戦: 難易度に応じた確率(flagRush)で自陣フラッグへ直行、または前進側のカバーへ
-  // （殲滅戦・PVPでは旗が無いので使わない。PVPフラッグ戦のNPCはpvp.js側で敵陣フラッグを狙う）
-  if (bot && S.mode==="vs" && S.vsRuleset==="flag" && r<DIFF_PARAMS[S.diff].flagRush){
-    return {x:PLAYER_FLAG.x+(Math.random()*2-1)*1.5, z:PLAYER_FLAG.z-1.2+(Math.random()*2-1)};
+  // フラッグ戦: 難易度に応じた確率(flagRush)で「自分にとっての敵陣の旗」へ直行
+  // （青NPC→赤陣地の旗 / 赤NPC→青陣地の旗。殲滅戦・バトルロワイアルでは旗が無いので使わない）
+  if (bot && S.mode==="vs" && S.vsRuleset==="flag" && r<DIFF_PARAMS[bot.diff||S.diff].flagRush){
+    const goal = bot.team==="red" ? ENEMY_FLAG : PLAYER_FLAG;
+    return {x:goal.x+(Math.random()*2-1)*1.5, z:goal.z+(Math.random()*2-1)*1.5};
   }
   if (bot && r<0.60){
     const ahead=coverPoints.filter(p=>p[1]>bot.pos.z+2);
@@ -395,31 +397,51 @@ export function resolveBotCollision(bot){
 }
 export function angleDelta(a,b){ return ((a-b+Math.PI*3)%(Math.PI*2))-Math.PI; }
 
-function botShoot(bot,p,distP){
+/* このNPCから見て最も近い敵（プレイヤー or 敵チームのNPC）を返す。
+   バトルロワイアルはチーム無し＝全員が敵、チーム戦は敵チームのみ狙う。
+   オンラインPVPの pvpNearestTarget と同じ役割 */
+function vsNearestTarget(bot){
+  let best=null, bestD=Infinity;
+  if (!RT.dying && !vsFriendly(bot.team, vsMyTeam())){
+    const d=Math.hypot(player.pos.x-bot.pos.x, player.pos.z-bot.pos.z);
+    if (d<bestD){ bestD=d; best={pos:player.pos, vel:player.vel, eyeH:player.eyeH}; }
+  }
+  for (const ob of bots){
+    if (ob===bot || !ob.alive || vsFriendly(bot.team, ob.team)) continue;
+    const d=Math.hypot(ob.pos.x-bot.pos.x, ob.pos.z-bot.pos.z);
+    if (d<bestD){ bestD=d; best={pos:ob.pos, vel:null, eyeH:1.5, botId:"bot:"+ob.netId}; }
+  }
+  return best ? {target:best, dist:bestD} : null;
+}
+function botShoot(bot,p,distP,target){
   _v3.set(bot.pos.x-Math.sin(bot.yaw)*0.5, bot.pos.y+1.32, bot.pos.z-Math.cos(bot.yaw)*0.5);
-  _v4.set(player.pos.x, player.pos.y+player.eyeH-0.5, player.pos.z);
-  // リード射撃（強いNPCほどプレイヤーの移動を先読み）
-  _v4.x += player.vel.x*(distP/85)*p.lead;
-  _v4.z += player.vel.z*(distP/85)*p.lead;
+  _v4.set(target.pos.x, target.pos.y+target.eyeH-0.5, target.pos.z);
+  // リード射撃（強いNPCほど標的の移動を先読み）
+  if (target.vel){
+    _v4.x += target.vel.x*(distP/85)*p.lead;
+    _v4.z += target.vel.z*(distP/85)*p.lead;
+  }
   const dir=_v4.sub(_v3).normalize();
   applySpread(dir, p.spread);
-  spawnBB(_v3, dir, 90, 140, "bot");
+  spawnBB(_v3, dir, 90, 140, "bot", "bot:"+bot.netId, undefined, bot.team);
   sndShotFar(distP);
 }
 
 export function updateBots(dt, now){
   if (S.mode!=="vs" || !S.vs.active) return;
-  const p=DIFF_PARAMS[S.diff];
   // 1st pass: 意思決定（状態遷移・射撃・移動指示）
   for (const bot of bots){
+    const p=DIFF_PARAMS[bot.diff||S.diff];
     if (!bot.alive){
       bot.fallT+=dt;
       bot.grp.rotation.x=Math.min(1.5, bot.fallT/0.25*1.5);   // 倒れたまま復活しない
       setBotHold(bot);
       continue;
     }
-    _v1.set(player.pos.x-bot.pos.x, 0, player.pos.z-bot.pos.z);
-    const distP=_v1.length();
+    const nt=vsNearestTarget(bot);
+    if (!nt){ setBotHold(bot); continue; }
+    const {target, dist:distP}=nt;
+    _v1.set(target.pos.x-bot.pos.x, 0, target.pos.z-bot.pos.z);
     if (bot.state==="move"){
       bot.moveT+=dt;
       const L=Math.hypot(bot.wp.x-bot.pos.x, bot.wp.z-bot.pos.z);
@@ -443,7 +465,7 @@ export function updateBots(dt, now){
         bot.cooldown-=dt;
         if (bot.pauseT>0) bot.pauseT-=dt;
         else if (bot.cooldown<=0){
-          if (losClear(bot)) botShoot(bot,p,distP);
+          if (losClear(bot, target)) botShoot(bot,p,distP,target);
           bot.cooldown=1/p.cycle;
           if (--bot.burstLeft<=0){
             bot.burstLeft=p.burst;
@@ -462,23 +484,45 @@ export function updateBots(dt, now){
     bot.yaw += angleDelta(bot.targetYaw,bot.yaw)*Math.min(1,dt*8);
     bot.grp.position.copy(bot.pos);
     bot.grp.rotation.y=bot.yaw;
-    // 自陣フラッグ奪取判定 → 敗北（フラッグ戦のみ）
-    if (S.vsRuleset==="flag" && Math.hypot(bot.pos.x-PLAYER_FLAG.x, bot.pos.z-PLAYER_FLAG.z)<1.4){
-      endMatch(false,"フラッグを奪われた");
-      return;
+    // フラッグ奪取判定（フラッグ戦のみ）。敵(青)NPCが自陣(赤)の旗に到達したら敗北、
+    // 味方(赤)NPCが敵陣(青)の旗に到達したら勝利（オンラインPVPと同じ挙動）
+    if (S.vsRuleset==="flag"){
+      const goal = bot.team==="blue" ? PLAYER_FLAG : ENEMY_FLAG;
+      if (Math.hypot(bot.pos.x-goal.x, bot.pos.z-goal.z)<1.4){
+        if (bot.team==="blue") endMatch(false,"フラッグを奪われた");
+        else endMatch(true);
+        return;
+      }
     }
   }
 }
 
+/* 敵として残っているNPCの数。勝利判定はカウンタを別途持たず、必ずこの
+   「実際のbots配列の生存状態」から数える（カウンタ方式は撃破処理との
+   ズレで「最後の敵が立っているのに勝利」になる事故が起きるため） */
+export function vsAliveEnemyBots(){
+  const myTeam=vsMyTeam();
+  return bots.filter(b=>b.alive && !vsFriendly(b.team, myTeam)).length;
+}
+/* 撃破・被弾のたびに呼ぶ統一勝敗判定（オンラインPVPのhostCheckWinと同じ役割）。
+   バトルロワイアル/殲滅戦=敵の全滅で勝利、フラッグ戦=旗の奪取で決着（別途判定） */
+function vsCheckWin(){
+  if (!S.vs.active || S.vsRuleset==="flag") return;
+  if (vsAliveEnemyBots()===0) endMatch(true);
+}
 export function onBotHit(bot, bb){
+  if (!bot.alive) return;   // 同一フレームの多重ヒットで撃破数を二重計上しない
   bot.alive=false; bot.fallT=0;   // 復活しない
   const dist=bb.pos.distanceTo(bb.start);
-  sndPing(dist);
+  const byPlayer = !String(bb.shooterId||"").startsWith("bot:");
+  if (byPlayer){
+    sndPing(dist);
+    S.vs.you++;
+    updateVsHUD();
+    flashHitmarker(`撃破！　${dist.toFixed(1)}m`);
+  }
   spawnParticles(bb.pos, 0xffffff, 5, 1.4);
-  S.vs.you++;
-  updateVsHUD();
-  flashHitmarker(`撃破！　${dist.toFixed(1)}m`);
-  if (S.vsRuleset==="elim" && bots.every(b=>!b.alive)) endMatch(true);
+  vsCheckWin();
 }
 export function onPlayerHit(){
   // ヒット = 即死（ゲームオーバー）。倒れながら三人称視点へ引く演出を再生
@@ -491,14 +535,17 @@ export function onPlayerHit(){
 }
 export function updateVsHUD(){
   $("vsYou").textContent=S.vs.you;
-  $("vsGoal").textContent = S.vsRuleset==="elim" ? ` / ${S.vsNpcCount}` : "";
+  const teamed = S.vsRuleset==="elim" || S.vsRuleset==="flag";
+  const enemyTotal = teamed ? S.vsNpcCountBlue : S.vsNpcCount;
+  $("vsGoal").textContent = S.vsRuleset==="flag" ? "" : ` / ${enemyTotal}`;
   $("flagDistWrap").style.display = S.vsRuleset==="flag" ? "inline" : "none";
 }
 export function endMatch(win, reason){
   if (!S.vs.active) return;
   S.vs.active=false;
-  const winMsg = S.vsRuleset==="elim" ? `🏆 殲滅完了！勝利！（撃破 ${S.vs.you}）`
-                                       : `🏆 フラッグ奪取！勝利！（撃破 ${S.vs.you}）`;
+  const winMsg = S.vsRuleset==="flag" ? `🏆 フラッグ奪取！勝利！（撃破 ${S.vs.you}）`
+    : S.vsRuleset==="elim" ? `🏆 殲滅完了！勝利！（撃破 ${S.vs.you}）`
+    : `🏆 生き残った！勝利！（撃破 ${S.vs.you}）`;
   showMsg(win? winMsg : `敗北…（${reason}）`, 4);
   setTimeout(()=>{ if (document.pointerLockElement) document.exitPointerLock(); }, 2800);
 }

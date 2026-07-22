@@ -15,13 +15,27 @@ export const $ = id=>document.getElementById(id);
    ============================================================ */
 export const S = {
   massG:0.20, v0:92, drag:"loth", tracer:true, sens:1.0, cycle:13,   // 抗力: Loth(Cd≈0.45)固定
-  mode:"range", diff:"normal", vsMap:"random", vsRuleset:"flag", vsNpcCount:3,
+  mode:"range", diff:"normal", vsMap:"random",
+  /* 対戦(NPC)のルールはオンラインPVPと同一の3種類に統一（br=バトルロワイアル / elim=殲滅戦 / flag=フラッグ戦） */
+  vsRuleset:"br",
+  vsNpcCount:3,                                    // バトルロワイアル用（チーム無し）
+  vsNpcCountRed:2, vsDiffRed:"normal",             // チーム戦: 🔴赤(プレイヤーと同じチーム)のNPC
+  vsNpcCountBlue:3, vsDiffBlue:"normal",           // チーム戦: 🔵青(敵チーム)のNPC
   ricochetHit:true,   // 跳弾(壁で反射)は常に発生。これは「跳ねた後のBBがヒット判定を持つか」の設定
   spinRps:170, optimalSpin:null, zeroIn:null, maxRange:null,
   score:0, shots:0, hits:0,
   challenge:{active:false, tLeft:0},
   vs:{you:0, active:false},
 };
+/* 対戦(NPC)のチーム戦(殲滅戦/フラッグ戦)ではプレイヤーは常に🔴赤チーム。
+   バトルロワイアルはチーム無し(全員が敵)なのでnull */
+export function vsMyTeam(){
+  return (S.vsRuleset==="elim"||S.vsRuleset==="flag") ? "red" : null;
+}
+/* 対戦(NPC)で撃った側と撃たれた側が味方同士か（PVPのpvpFriendlyと同じ役割） */
+export function vsFriendly(teamA, teamB){
+  return S.vsRuleset!=="br" && !!teamA && !!teamB && teamA===teamB;
+}
 export const MAG_SIZE = 60;
 export const EYE_H = 1.6, CROUCH_H = 1.05;
 export const UP = new THREE.Vector3(0,1,0);

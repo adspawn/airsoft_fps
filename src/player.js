@@ -2,7 +2,7 @@
    プレイヤー: 移動・射撃・入力（キーボード/マウス）・ポインタロック
    ============================================================ */
 import { THREE, S, $, camera, renderer, RT, UP, player, weapon, keys, clearKeys,
-  MAG_SIZE, EYE_H, CROUCH_H, currentBounds, obstacles, pvp, sightCal } from "./state.js";
+  MAG_SIZE, EYE_H, CROUCH_H, currentBounds, obstacles, pvp, sightCal, vsMyTeam } from "./state.js";
 import { simulate2D, solveOptimalSpin } from "./physics.js";
 import { sndClick, sndShot, sndReload, audio } from "./sound.js";
 import { spawnBB, resolveHipAimPoint } from "./bb.js";
@@ -163,7 +163,8 @@ export function tryShoot(){
   // リーン中は銃が傾いている分だけホップアップの回転軸も傾け、弾道が斜めに揚力を受けるようにする
   _leanUp.copy(UP);
   if (player.lean) _leanUp.applyAxisAngle(_dir, player.lean*LEAN_MAX_ROLL);
-  spawnBB(_spawn,_dir,S.v0,S.spinRps,"player",null,_leanUp, S.mode==="pvp"?pvp.myTeam:null);
+  spawnBB(_spawn,_dir,S.v0,S.spinRps,"player",null,_leanUp,
+    S.mode==="pvp" ? pvp.myTeam : S.mode==="vs" ? vsMyTeam() : null);
 
   if (S.mode==="pvp" && pvp.inMatch){
     const shot={origin:{x:_spawn.x,y:_spawn.y,z:_spawn.z}, dir:{x:_dir.x,y:_dir.y,z:_dir.z},

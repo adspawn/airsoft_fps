@@ -311,9 +311,15 @@
     <div class="setRow" id="rowVsRuleset">
       <label>対戦ルール</label>
       <div class="chips" id="vsRulesetChips">
-        <button class="chip sel" data-r="flag">フラッグ戦</button>
+        <button class="chip sel" data-r="br">バトルロワイアル</button>
         <button class="chip" data-r="elim">殲滅戦</button>
+        <button class="chip" data-r="flag">フラッグ戦</button>
       </div>
+    </div>
+    <div class="setRow" id="rowNpcCount">
+      <label>NPCの数</label>
+      <input type="range" id="npcCountSlider" min="1" max="8" step="1" value="3">
+      <span class="val" id="npcCountVal">3体</span>
     </div>
     <div class="setRow" id="rowDiff">
       <label>NPCの強さ</label>
@@ -323,10 +329,31 @@
         <button class="chip" data-d="strong">つよい</button>
       </div>
     </div>
-    <div class="setRow" id="rowNpcCount">
-      <label>NPCの数</label>
-      <input type="range" id="npcCountSlider" min="1" max="8" step="1" value="3">
-      <span class="val" id="npcCountVal">3体</span>
+    <div class="setRow" id="rowVsNpcRed" style="display:none">
+      <label>🔴赤NPC数</label>
+      <input type="range" id="vsNpcCountRedSlider" min="0" max="8" step="1" value="2">
+      <span class="val" id="vsNpcCountRedVal">2体</span>
+    </div>
+    <div class="setRow" id="rowVsNpcRedDiff" style="display:none">
+      <label>🔴赤NPC強さ</label>
+      <div class="chips" id="vsDiffRedChips">
+        <button class="chip" data-d="weak">よわい</button>
+        <button class="chip sel" data-d="normal">ふつう</button>
+        <button class="chip" data-d="strong">つよい</button>
+      </div>
+    </div>
+    <div class="setRow" id="rowVsNpcBlue" style="display:none">
+      <label>🔵青NPC数</label>
+      <input type="range" id="vsNpcCountBlueSlider" min="0" max="8" step="1" value="3">
+      <span class="val" id="vsNpcCountBlueVal">3体</span>
+    </div>
+    <div class="setRow" id="rowVsNpcBlueDiff" style="display:none">
+      <label>🔵青NPC強さ</label>
+      <div class="chips" id="vsDiffBlueChips">
+        <button class="chip" data-d="weak">よわい</button>
+        <button class="chip sel" data-d="normal">ふつう</button>
+        <button class="chip" data-d="strong">つよい</button>
+      </div>
     </div>
     <div class="setRow" id="rowVsMap">
       <label>バリケード</label>

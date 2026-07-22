@@ -4,7 +4,8 @@
    このモジュールが他モジュールへ依存しないよう setHitHandlers() で
    後から登録するコールバック経由で行う（main.js が全モジュール読込み後に配線する）。
    ============================================================ */
-import { THREE, S, scene, obstacles, RT, UP, bots, pvp, pvpFriendly, player, targets } from "./state.js";
+import { THREE, S, scene, obstacles, RT, UP, bots, pvp, pvpFriendly, player, targets,
+  vsMyTeam, vsFriendly } from "./state.js";
 import { ENV, KMAG, SPIN_FRIC, cdLoth, cdMorrison } from "./physics.js";
 import { spawnParticles } from "./effects.js";
 
@@ -234,7 +235,10 @@ export function stepBBs(dt){
     if (bb.owner==="bot" || bb.owner==="pvpEnemy"){
       // NPC/PVP敵のBB → プレイヤー判定（頭・胸・脚の3球カプセル）。チーム戦は味方弾を無視
       let hitLocal=false;
-      const friendlyToMe = bb.owner==="pvpEnemy" && pvpFriendly(bb.shooterTeam, pvp.myTeam);
+      // チーム戦では味方NPCの弾は自分に当たらない（PVP・対戦(NPC)共通）
+      const friendlyToMe = bb.owner==="pvpEnemy"
+        ? pvpFriendly(bb.shooterTeam, pvp.myTeam)
+        : vsFriendly(bb.shooterTeam, vsMyTeam());
       if (RT.gNow>RT.invulnUntil && (S.ricochetHit || bb.bounces===0) && !friendlyToMe){
         const px=player.pos.x, py=player.pos.y, pz=player.pos.z, eh=player.eyeH;
         if (segHitSphere(bb.prev,bb.pos,px,py+0.45,pz,0.32) ||
@@ -245,13 +249,16 @@ export function stepBBs(dt){
           killBB(bb); hitLocal=true;
         }
       }
-      // ホストのみ: 他プレイヤー・NPCの弾が自分のNPCに当たっていないかも判定（NPCはホスト権威のため）。
-      // NPC同士の撃ち合いも成立させる（自分の弾は自分に当たらない・チーム戦の味方撃ちは無効）
-      if (!hitLocal && S.mode==="pvp" && pvp.iAmHost && bb.owner==="pvpEnemy" &&
-          (S.ricochetHit || bb.bounces===0)){
+      // NPCの弾がNPCに当たっていないかも判定し、NPC同士の撃ち合いを成立させる
+      // （自分の弾は自分に当たらない・チーム戦の味方撃ちは無効）。
+      // PVPではNPCがホスト権威のためホストのみが判定する
+      const canHitBots = (S.mode==="vs" && bb.owner==="bot") ||
+                         (S.mode==="pvp" && pvp.iAmHost && bb.owner==="pvpEnemy");
+      if (!hitLocal && canHitBots && (S.ricochetHit || bb.bounces===0)){
+        const friendly = bb.owner==="pvpEnemy" ? pvpFriendly : vsFriendly;
         let hitBot=null;
         outerH: for (const bot of bots){
-          if (!bot.alive || pvpFriendly(bb.shooterTeam, bot.team)) continue;
+          if (!bot.alive || friendly(bb.shooterTeam, bot.team)) continue;
           if (bb.shooterId==="bot:"+bot.netId) continue;   // 発射したNPC自身は除外
           for (const sph of BOT_SPHERES){
             if (segHitSphere(bb.prev,bb.pos,bot.pos.x,bot.pos.y+sph[0],bot.pos.z,sph[1])){
@@ -259,16 +266,20 @@ export function stepBBs(dt){
             }
           }
         }
-        if (hitBot){ H.onPvpBotHit(hitBot, bb.shooterId); killBB(bb); }
+        if (hitBot){
+          if (bb.owner==="pvpEnemy") H.onPvpBotHit(hitBot, bb.shooterId);
+          else H.onBotHit(hitBot, bb);
+          killBB(bb);
+        }
       }
       continue;
     }
     if (!(S.ricochetHit || bb.bounces===0)){ continue; }
     if (S.mode==="vs"){
-      // プレイヤーのBB → NPC判定
+      // プレイヤーのBB → NPC判定（チーム戦では味方(赤)NPCには当たらない）
       let hitBot=null;
       outer: for (const bot of bots){
-        if (!bot.alive) continue;
+        if (!bot.alive || vsFriendly(bb.shooterTeam, bot.team)) continue;
         for (const sph of BOT_SPHERES){
           if (segHitSphere(bb.prev,bb.pos,bot.pos.x,bot.pos.y+sph[0],bot.pos.z,sph[1])){
             hitBot=bot; break outer;

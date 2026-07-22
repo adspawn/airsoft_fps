@@ -143,14 +143,9 @@ function pvpBotFlagGoal(bot){
 }
 let pvpBotFlagCaptured=false;   // 1試合1回だけ確定させる（試合開始時にリセット）
 export function onPvpBotHit(bot, shooterId){
+  if (!bot.alive) return;   // 同一フレームの多重ヒットで二重処理しない
   bot.alive=false; bot.fallT=0;
   spawnParticles(bot.grp.position, 0xffffff, 5, 1.4);
-  // NPCのホスト権威カウントを減算（勝利条件判定に使用。これが無いとNPC全滅が検知できなかった）
-  if (hostRoom){
-    if (bot.team==="red" && hostRoom.npcAliveRed>0) hostRoom.npcAliveRed--;
-    else if (bot.team==="blue" && hostRoom.npcAliveBlue>0) hostRoom.npcAliveBlue--;
-    if (hostRoom.npcAlive>0) hostRoom.npcAlive--;
-  }
   // プレイヤーによる撃破のみキル数加算・報告（NPC同士の撃ち合いはスコア対象外。
   // 倒れた状態はgame:botsの位置ブロードキャストで全員に同期される）
   if (!String(shooterId).startsWith("bot:")){
@@ -256,6 +251,11 @@ function hostBroadcastRoom(){
 function hostAliveHumans(team=null){
   return [...hostRoom.players.values()].filter(p=>p.alive && (!team || p.team===team));
 }
+/* 生存NPC数は必ず実際のbots配列から数える（別途カウンタを持って減算する方式は
+   撃破処理とズレて「最後の敵がまだ立っているのに勝利」になる事故が起きるため） */
+function hostAliveBots(team=null){
+  return bots.filter(b=>b.alive && (!team || b.team===team)).length;
+}
 /* 勝利条件判定（人間NPC双方を見る。以前はNPCの生死を一切見ておらず、
    全NPCを倒しても試合が終わらないバグの原因になっていた） */
 function hostCheckWin(){
@@ -263,13 +263,13 @@ function hostCheckWin(){
   if (hostRoom.gameType==="br"){
     const alive=hostAliveHumans();
     // 生存人間が0人（全滅）、または1人だけになりNPCも全滅していれば試合終了
-    if (alive.length===0 || (alive.length===1 && hostRoom.npcAlive<=0)){
+    if (alive.length===0 || (alive.length===1 && hostAliveBots()===0)){
       const winner=alive[0]||null;
       hostEndMatch({winnerId:winner?winner.id:null, winnerName:winner?winner.name:"-", winnerTeam:null});
     }
   } else if (hostRoom.gameType==="elim"){
-    const redTotal = hostAliveHumans("red").length + hostRoom.npcAliveRed;
-    const blueTotal = hostAliveHumans("blue").length + hostRoom.npcAliveBlue;
+    const redTotal = hostAliveHumans("red").length + hostAliveBots("red");
+    const blueTotal = hostAliveHumans("blue").length + hostAliveBots("blue");
     if (redTotal<=0 || blueTotal<=0){
       const winnerTeam = redTotal>0 ? "red" : blueTotal>0 ? "blue" : null;
       hostEndMatch({winnerId:null, winnerName:null, winnerTeam});
@@ -335,10 +335,6 @@ function hostStartMatch(){
     const spawnIndex = teamed ? (spawnCounters[p.team]++%8) : (spawnCounters.ffa++%8);
     players.push({id:p.id, name:p.name, team:p.team, spawnIndex});
   }
-  // NPCのホスト権威生存カウント初期化（バトルロワイアル=合計、殲滅戦=チーム別）
-  hostRoom.npcAlive = hostRoom.gameType==="br" ? hostRoom.npcCount : 0;
-  hostRoom.npcAliveRed = hostRoom.gameType==="elim" ? hostRoom.npcCountRed : 0;
-  hostRoom.npcAliveBlue = hostRoom.gameType==="elim" ? hostRoom.npcCountBlue : 0;
   const payload={
     players, gameType:hostRoom.gameType, hostId:hostRoom.hostId, mapData,
     npcCount:hostRoom.npcCount, npcDiff:hostRoom.npcDiff,
@@ -498,7 +494,6 @@ export async function pvpCreateRoom(){
       npcCountRed:Math.min(8,Math.max(0,npcCountRed)), npcDiffRed:clampDiff(npcDiffRed),
       npcCountBlue:Math.min(8,Math.max(0,npcCountBlue)), npcDiffBlue:clampDiff(npcDiffBlue),
       mapMode, hostId:id, players:new Map(), mapData:[],
-      npcAlive:0, npcAliveRed:0, npcAliveBlue:0,
     };
     hostRoom.players.set(id, {id, name:pvp.name, ready:false, alive:true, kills:0, deaths:0, team:null});
     $("pvpConnStatus").textContent="接続済み（自分: "+id+"）";
