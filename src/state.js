@@ -15,7 +15,7 @@ export const $ = id=>document.getElementById(id);
    ============================================================ */
 export const S = {
   massG:0.20, v0:92, drag:"loth", tracer:true, sens:1.0, cycle:13,   // 抗力: Loth(Cd≈0.45)固定
-  mode:"range", weaponType:"ar15", diff:"normal", vsMap:"random",
+  mode:"range", weaponType:"type20", diff:"normal", vsMap:"random",
   /* 対戦(NPC)のルールはオンラインPVPと同一の3種類に統一（br=バトルロワイアル / elim=殲滅戦 / flag=フラッグ戦） */
   vsRuleset:"br",
   vsNpcCount:3,                                    // バトルロワイアル用（チーム無し）

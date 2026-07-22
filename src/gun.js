@@ -1,5 +1,5 @@
 /* ============================================================
-   ビューモデル（電動ガン M4風）・AR-15 GLTFモデル・アイアンサイト校正・
+   ビューモデル（銃のGLTFモデル）・アイアンサイト校正・
    サイト調整（デバッグ）モード
    ============================================================ */
 import { THREE, S, $, camera, scene, RT, sightCal, sightCalOrbit, player, weapon, MAG_SIZE } from "./state.js";
@@ -12,12 +12,14 @@ import { THREE, S, $, camera, scene, RT, sightCal, sightCalOrbit, player, weapon
    cal:     このモデル用の既定サイト調整値（サイト調整モードで上書き保存できる）
    ============================================================ */
 export const WEAPONS = {
-  ar15: {
-    name:"アサルトライフル", file:"ar15.glb", len:0.84,
+  type20: {
+    name:"アサルトライフル", file:"howa_type_20.glb", len:0.85,
     modes:["SEMI","FULL"], pellets:1, scope:false,
-    cal:{pitchDeg:-0.7, yawDeg:-0.6, rollDeg:0, crossX:30, crossY:0, fovDeg:25,
-         muzzleX:-0.002, muzzleY:-0.007, muzzleZ:0.357, crossSize:0, circleSize:0,
-         hipX:0.235, hipY:-0.225, hipZ:-0.35, spreadHip:0.45, spreadAds:0.10},
+    /* このモデルは原点が機関部の下前方寄りなので、保持位置は他モデルより下げ・後ろへ置く
+       （銃の見た目の中心が腰だめの標準位置に来るよう調整した値） */
+    cal:{pitchDeg:0, yawDeg:0, rollDeg:0, crossX:0, crossY:0, fovDeg:25,
+         muzzleX:0, muzzleY:0, muzzleZ:0, crossSize:0, circleSize:0,
+         hipX:0.22, hipY:-0.39, hipZ:-0.43, spreadHip:0.45, spreadAds:0.10},
   },
   shotgun: {
     name:"ショットガン", file:"hawk_18.4mm_type_97-1_shotgun_qfb_18.4mm.glb", len:0.95,
@@ -34,7 +36,7 @@ export const WEAPONS = {
          hipX:0.175, hipY:-0.225, hipZ:-0.35, spreadHip:0.70, spreadAds:0.02},
   },
 };
-export function currentWeapon(){ return WEAPONS[S.weaponType]||WEAPONS.ar15; }
+export function currentWeapon(){ return WEAPONS[S.weaponType]||WEAPONS.type20; }
 
 /* ---- プロシージャル銃（GLTFロード完了までのフォールバック表示） ---- */
 export const gun = new THREE.Group();
@@ -61,7 +63,7 @@ export const GUN_ADS = new THREE.Vector3(0,-.115,-.30);
 gun.position.copy(GUN_HIP);
 camera.add(gun);
 export let MUZZLE_LOCAL = new THREE.Vector3(0,.01,-.70);   // gun局所（プロシージャル銃用の暫定値、モデル読込み後に実測値へ差替え）
-export let MUZZLE_LOCAL_MODEL = null;                       // gunCorrected局所（AR15モデルの実マズル先端）
+export let MUZZLE_LOCAL_MODEL = null;                       // gunCorrected局所（読込んだモデルの実マズル先端）
 
 /* ---- アイアンサイト・キャリブレーション（前方サイト固定・後方サイト可動のピボット回転） ----
    FRONT_LOCAL/REAR_LOCAL: モデル読込み直後（回転補正なし）の corrected 局所空間での
@@ -79,19 +81,18 @@ const S_CAL_KEY="airsoft_fps_sight_calib";
    一時的にcorrectedのT・Rだけ単位化（Sはそのまま）して測定することで、
    後の corrected.position = F0 - q.applyQuaternion(F0)（scale込みの相似変換）の
    前提と一致する座標を得る */
-function measureSightPoints(corrected, skinned, isAr15){
+function measureSightPoints(corrected){
   const savedPos=corrected.position.clone(), savedQuat=corrected.quaternion.clone();
   corrected.position.set(0,0,0); corrected.quaternion.identity();
   corrected.updateMatrixWorld(true);
   const invParent=new THREE.Matrix4().copy(corrected.parent.matrixWorld).invert();
   const v=new THREE.Vector3();
-  let rminX=1e9,rmaxX=-1e9,rminY=1e9,rmaxY=-1e9,rzSum=0,rN=0;
-  let fMaxY=-1e9,fAtX=0,fzSum=0,fN=0;
   let mMinZ=1e9,mAtX=0,mAtY=0;   // マズル先端＝モデル全体で最もZが小さい（前方）頂点
   let bMaxY=-1e9, bMaxZ=-1e9;
   /* スキンメッシュ・通常メッシュどちらも走査できるようにする
-     （AR15はスキンメッシュだが、ショットガン/ハンティングライフルは通常メッシュ） */
-  const visit=(mesh)=>{
+     （モデルによってスキン構成のものと通常メッシュのものがある） */
+  /* 1周目: 全体のバウンディングとマズル先端を求める */
+  const visit=(mesh, cb)=>{
     const toScaledLocal=new THREE.Matrix4().multiplyMatrices(invParent, mesh.matrixWorld);
     const posAttr=mesh.geometry.attributes.position;
     if (!posAttr) return;
@@ -99,36 +100,35 @@ function measureSightPoints(corrected, skinned, isAr15){
       if (mesh.isSkinnedMesh) mesh.getVertexPosition(i,v);
       else v.fromBufferAttribute(posAttr,i);
       v.applyMatrix4(toScaledLocal);
-      if (isAr15){
-        if (v.z>0.09&&v.z<0.20&&v.y>0.09&&v.y<0.18){
-          rminX=Math.min(rminX,v.x);rmaxX=Math.max(rmaxX,v.x);
-          rminY=Math.min(rminY,v.y);rmaxY=Math.max(rmaxY,v.y);rzSum+=v.z;rN++;
-        }
-        if (v.z>-0.31&&v.z<-0.27){ fzSum+=v.z;fN++; if(v.y>fMaxY){fMaxY=v.y;fAtX=v.x;} }
-      }
-      if (v.y>bMaxY) bMaxY=v.y;
-      if (v.z>bMaxZ) bMaxZ=v.z;
-      if (v.z<mMinZ){ mMinZ=v.z; mAtX=v.x; mAtY=v.y; }
+      cb(v);
     }
   };
-  if (isAr15 && skinned) visit(skinned);
-  else corrected.traverse(o=>{ if (o.isMesh) visit(o); });
+  corrected.traverse(o=>{ if (o.isMesh) visit(o, (p)=>{
+    if (p.y>bMaxY) bMaxY=p.y;
+    if (p.z>bMaxZ) bMaxZ=p.z;
+    if (p.z<mMinZ){ mMinZ=p.z; mAtX=p.x; mAtY=p.y; }
+  }); });
+  /* 2周目: 銃の一番上のバンド(＝アイアンサイト/スコープが載っている高さ)だけを抜き出し、
+     その前後端と高さからサイトの位置を推定する。モデルの原点やストック長に依存せず、
+     どの銃でも「照準器そのもの」を基準にできる */
+  let sMinY=1e9, sMinZ=1e9, sMaxZ=-1e9;
+  const yThresh=bMaxY-(bMaxY-  0)*0.15;
+  corrected.traverse(o=>{ if (o.isMesh) visit(o, (p)=>{
+    if (p.y<yThresh) return;
+    if (p.y<sMinY) sMinY=p.y;
+    if (p.z<sMinZ) sMinZ=p.z;
+    if (p.z>sMaxZ) sMaxZ=p.z;
+  }); });
   corrected.position.copy(savedPos); corrected.quaternion.copy(savedQuat);
   corrected.updateMatrixWorld(true);
-  if (isAr15 && rN>0 && fN>0){
-    return {
-      front:new THREE.Vector3(fAtX,fMaxY,fzSum/(fN||1)),
-      rear:new THREE.Vector3((rminX+rmaxX)/2,(rminY+rmaxY)/2,rzSum/(rN||1)),
-      muzzle:new THREE.Vector3(mAtX,mAtY,mMinZ),
-    };
-  }
-  /* AR15以外はサイト形状のヒューリスティックが当てにならないので、
-     バウンディングボックスからおおよそのサイト線（銃身上面の前後）を推定する。
-     ここはADS時の回転ピボット基準にすぎず、実際の見た目はサイト調整モードで追い込む */
+  const sightY = sMinY<1e8 ? (sMinY+bMaxY)/2 : bMaxY*0.92;   // 照準器の光軸のおおよその高さ
+  const eyeZ   = sMaxZ>-1e8 ? sMaxZ : bMaxZ*0.35;            // 接眼側(手前端)＝目を置く基準
+  const tipZ   = sMinZ<1e8 ? sMinZ : mMinZ*0.72;             // 対物側(前端)
   return {
-    front:new THREE.Vector3(0, bMaxY*0.92, mMinZ*0.72),
-    rear:new THREE.Vector3(0, bMaxY*0.92, bMaxZ*0.35),
+    front:new THREE.Vector3(0, sightY, tipZ),
+    rear:new THREE.Vector3(0, sightY, eyeZ),
     muzzle:new THREE.Vector3(mAtX,mAtY,mMinZ),
+    eyeZ,   // ADSでこの点をアイレリーフ分だけカメラ前に置く
   };
 }
 /* pitch/yaw/roll(度) → corrected姿勢を再計算。フロント先端を常に画面中心(FRONT_LOCAL)に固定。
@@ -136,6 +136,10 @@ function measureSightPoints(corrected, skinned, isAr15){
 /* ADS時に銃を前へどれだけ出すか。銃身が長いモデルでストック側がカメラ後方へ突き抜けて
    視界が銃の内部で埋まらないよう、モデルの全長に応じて設定する（setWeaponが更新） */
 let ADS_Z=-0.30;
+/* ADS時に照準器の接眼側をカメラの何m前に置くか。
+   実物のアイレリーフ(数cm)そのままだと、ADSは画角を絞る(=拡大する)ぶん照準器が
+   画面いっぱいに写ってしまうため、ビューモデルとしては十分に離して置く */
+const ADS_EYE_RELIEF=0.45;
 export function applySightCalibration(pitchDeg,yawDeg,rollDeg,fovDeg=50){
   if (!gunCorrected || !FRONT_LOCAL) return;
   const e=new THREE.Euler(pitchDeg*Math.PI/180, yawDeg*Math.PI/180, rollDeg*Math.PI/180,"XYZ");
@@ -145,13 +149,14 @@ export function applySightCalibration(pitchDeg,yawDeg,rollDeg,fovDeg=50){
   GUN_ADS.set(-FRONT_LOCAL.x, -FRONT_LOCAL.y, ADS_Z);
   ADS_FOV=fovDeg;
 }
-/* 保存形式は銃ごとの辞書 {ar15:{...}, shotgun:{...}, sniper:{...}}。
-   旧バージョンはAR15単体のフラットなオブジェクトだったので、その場合はar15の値として取り込む */
+/* 保存形式は銃ごとの辞書 {type20:{...}, shotgun:{...}, sniper:{...}}。
+   旧バージョンは単一の銃(AR15)用のフラットなオブジェクトだったが、その銃自体が
+   入れ替わっており値をそのまま流用すると別モデルに合わない調整が入ってしまうため破棄する */
 function loadCalibStore(){
   let raw=null;
   try{ raw=JSON.parse(localStorage.getItem(S_CAL_KEY)||"null"); }catch(e){ return {}; }
   if (!raw || typeof raw!=="object") return {};
-  if (raw.pitchDeg!==undefined) return {ar15:raw};   // 旧形式からの移行
+  if (raw.pitchDeg!==undefined) return {};   // 旧形式（AR15専用）は使わない
   return raw;
 }
 /* 指定した銃（省略時は現在の銃）の保存済みキャリブレーション。無ければnull */
@@ -167,7 +172,7 @@ export function saveSightCalib(o, type){
 /* 実際に使う値 = 保存値があればそれ、無ければその銃の既定キャリブレーション */
 export function effectiveCalib(type){
   const t=type||S.weaponType;
-  return Object.assign({}, (WEAPONS[t]||WEAPONS.ar15).cal, loadSightCalib(t)||{});
+  return Object.assign({}, (WEAPONS[t]||WEAPONS.type20).cal, loadSightCalib(t)||{});
 }
 /* HUDクロスヘア(#crosshair)の十字の長さ・丸の半径をCSSカスタムプロパティ経由で反映 */
 export function applyCrosshairSize(crossSize, circleSize){
@@ -230,14 +235,11 @@ export function updateMuzzleMarker(){
   muzzleMarker.position.copy(muzzleInGunLocal());
 }
 
-/* ---- AR-15 GLTFモデル読込み ----
-   ソース: assets/ar15.glb（Sketchfab配布, FBX由来, スキンメッシュ+アーマチュア構成）
-   スキン変形込みの実頂点位置(SkinnedMesh.getVertexPosition)で検証した結果、
-   ロード直後の姿勢は既にローカルZ軸=全長軸（幅0.074×高さ0.31×全長0.84、実銃比率と一致）で
-   回転補正は不要。ただし銃口（先細り側 = ローカルZ+）がカメラ側(+Z)を向いてしまっているため、
-   Y軸180°回転のみで銃口を前方-Zへ反転（上方向Yはそのまま維持）。
-   ロード後は自動でバウンディングボックスを測り、実銃全長 ~0.84m に正規化して中心を原点に揃える。
-*/
+/* ---- 銃モデル(GLTF)の読込み ----
+   モデルごとに元データの向き・スケール・原点がバラバラなので、読込み後に
+   1) 実銃相当の全長(spec.len)へ正規化　2) 最長軸をZ(前後)へ揃える
+   3) マズルが-Z(前方)を向くよう必要なら180°回す　4) 中心を原点へ
+   を自動で行い、どのモデルでも同じ座標系で扱えるようにする。 */
 const loadedModels = {};   // type -> {root, front, rear, muzzle}
 let _GLTFLoader=null;
 /* 現在のsightCal値を3Dシーン（銃の姿勢・マズル・クロスヘア）へ反映する */
@@ -262,8 +264,6 @@ function loadWeaponModel(type){
       // 測定は corrected.parent(=gun) の逆行列を使うので、先にシーングラフへ繋いでおく
       corrected.visible=false;
       gun.add(corrected);
-      let skinned=null;
-      corrected.traverse(o=>{ if (o.isSkinnedMesh) skinned=o; });
       /* 実銃相当の全長へ正規化 → 長手方向の向きを揃える → 中心を原点へ、の順に整える。
          向きの補正は corrected ではなく内側(inner)に掛ける: corrected の quaternion は
          applySightCalibration が毎回上書きするため、そこへ入れると補正が消えてしまう */
@@ -280,29 +280,26 @@ function loadWeaponModel(type){
         corrected.updateMatrixWorld(true);
       };
       fit();
-      if (type!=="ar15"){
-        /* モデルごとに全長がどの軸を向いているかバラバラなので、
-           1) 最長軸を Z（前後方向）へ回す　2) マズルが-Z(前方)に来るよう必要なら180°回す
-           の2段階で姿勢を揃える（どちらも内側のinnerに掛ける） */
-        corrected.updateMatrixWorld(true);
-        const size=new THREE.Box3().setFromObject(corrected).getSize(new THREE.Vector3());
-        if (size.x>size.z && size.x>=size.y) inner.rotation.y += Math.PI/2;        // 長手がX軸 → Zへ
-        else if (size.y>size.z && size.y>size.x) inner.rotation.x += Math.PI/2;    // 長手がY軸 → Zへ
-        fit();
-      }
-      let pts = measureSightPoints(corrected, skinned, type==="ar15");
+      /* モデルごとに全長がどの軸を向いているかバラバラなので、
+         1) 最長軸を Z（前後方向）へ回す　2) マズルが-Z(前方)に来るよう必要なら180°回す
+         の2段階で姿勢を揃える（どちらも内側のinnerに掛ける） */
+      corrected.updateMatrixWorld(true);
+      const size=new THREE.Box3().setFromObject(corrected).getSize(new THREE.Vector3());
+      if (size.x>size.z && size.x>=size.y) inner.rotation.y += Math.PI/2;        // 長手がX軸 → Zへ
+      else if (size.y>size.z && size.y>size.x) inner.rotation.x += Math.PI/2;    // 長手がY軸 → Zへ
+      fit();
+      let pts = measureSightPoints(corrected);
       // マズル（最も先端の頂点）が+Z側にある＝後ろ向きなので180°回して-Z(前方)へ揃える
-      if (type!=="ar15" && pts.muzzle.z > 0){
+      if (pts.muzzle.z > 0){
         inner.rotation.y += Math.PI;
         fit();
-        pts = measureSightPoints(corrected, skinned, false);
+        pts = measureSightPoints(corrected);
       }
-      /* ADSで銃を前へ出す量: ストック後端がカメラの少し前に来る位置。
-         AR15は従来の実測調整値(-0.30)を維持し、他モデルは全長から自動算出する */
-      corrected.updateMatrixWorld(true);
-      const zHalf=new THREE.Box3().setFromObject(corrected).getSize(new THREE.Vector3()).z/2;
+      /* ADSで銃を前へ出す量: サイト(照準器)が常に一定のアイレリーフでカメラ前に来るようにする。
+         モデルの原点は中心とは限らない（機関部の下前方などにある）ため全長からは決められない。
+         この置き方ならストックは自然とカメラの後方へ回り込んで視界に入らない */
       const entry={root:corrected, front:pts.front, rear:pts.rear, muzzle:pts.muzzle,
-        adsZ: type==="ar15" ? -0.30 : -(zHalf+0.06)};
+        adsZ: -ADS_EYE_RELIEF - pts.eyeZ};
       loadedModels[type]=entry;
       resolve(entry);
     }, undefined, (err)=>{
@@ -314,7 +311,7 @@ function loadWeaponModel(type){
 /* 銃を切り替える（モデルは初回のみ読込み、以降はキャッシュを表示切替）。
    モデルごとに独立したサイト調整値・射撃モード制限が適用される */
 export function setWeapon(type){
-  if (!WEAPONS[type]) type="ar15";
+  if (!WEAPONS[type]) type="type20";
   S.weaponType=type;
   const spec=WEAPONS[type];
   // 射撃モードの制限（ショットガン・スナイパーはセミオートのみ）
