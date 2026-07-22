@@ -1,7 +1,7 @@
 /* ============================================================
    射撃練習場のターゲット（プレート・マンターゲット・空き缶）とタイムアタック
    ============================================================ */
-import { THREE, S, scene, $, RT, targets, weapon, MAG_SIZE } from "./state.js";
+import { THREE, S, scene, $, RT, targets, weapon, MAG_SIZE, WIND } from "./state.js";
 import { spawnParticles, showMsg } from "./effects.js";
 import { sndPing, sndTink, sndThock } from "./sound.js";
 import { updateAmmoHUD } from "./player.js";
@@ -133,7 +133,65 @@ export function updateScoreHUD(){
   $("score").textContent=S.score;
   $("acc").textContent=S.shots? Math.round(100*S.hits/S.shots)+"%" : "—";
 }
+/* ============================================================
+   吹き流し（ウインドソック）
+   風向と風速を視覚的に示す射撃場の設備。
+   - 筒は風下（風が吹いていく向き）へなびく
+   - 風が弱いほど垂れ下がり、規定風速で水平になる（実物と同じ挙動）
+   - 風速に応じて揺らぎ（フラッター）が強くなる
+   ============================================================ */
+const WINDSOCK_FULL_SPEED = 12;   // この風速[m/s]で完全に水平になる
+const windsocks = [];
+function buildWindsock(x, z, poleH=4.2){
+  const grp=new THREE.Group();
+  grp.position.set(x,0,z);
+  const pole=new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.06,poleH), postMat);
+  pole.position.y=poleH/2; pole.castShadow=true; grp.add(pole);
+  // 支柱の先端にリング（筒の口）＋そこから伸びる吹き流し本体
+  const sock=new THREE.Group();
+  sock.position.y=poleH;
+  sock.rotation.order="YXZ";   // 先に方位(Y)、次に垂れ下がり(X)を適用したいため
+  grp.add(sock);
+  const ring=new THREE.Mesh(new THREE.TorusGeometry(0.28,0.035,8,18),
+    new THREE.MeshLambertMaterial({color:0xdddddd}));
+  ring.rotation.y=Math.PI/2; sock.add(ring);
+  /* 筒はローカル+Z方向へ伸ばす（=なびく向き）。橙/白の縞を5段の円錐台で作り、
+     根元(0.28m)から先端(0.13m)へ細くする */
+  const segN=5, segLen=0.52;
+  const matO=new THREE.MeshLambertMaterial({color:0xff7a1a, side:THREE.DoubleSide});
+  const matW=new THREE.MeshLambertMaterial({color:0xf2f2f2, side:THREE.DoubleSide});
+  const segs=[];
+  for (let i=0;i<segN;i++){
+    const r0=0.28+(0.13-0.28)*(i/segN), r1=0.28+(0.13-0.28)*((i+1)/segN);
+    const m=new THREE.Mesh(new THREE.CylinderGeometry(r1,r0,segLen,14,1,true), i%2?matW:matO);
+    m.rotation.x=Math.PI/2;                       // 円柱の軸(Y)を+Zへ倒す
+    m.position.z=segLen*(i+0.5);
+    m.castShadow=true;
+    sock.add(m); segs.push(m);
+  }
+  scene.add(grp);
+  windsocks.push({grp, sock, segs, phase:Math.random()*Math.PI*2});
+  return grp;
+}
+buildWindsock(-15,-24);
+buildWindsock( 15,-46);
+export function updateWindsocks(now){
+  const speed=S.windSpeed;
+  const t=Math.min(1, speed/WINDSOCK_FULL_SPEED);
+  // 風がある向き（=WINDベクトルの方位）へ筒を向ける。無風時は前回の向きを保つ
+  const yaw = speed>0.01 ? Math.atan2(WIND.x, WIND.z) : null;
+  const droop = (1-t)*Math.PI/2;   // 0=水平, π/2=真下へ垂れる
+  for (const ws of windsocks){
+    if (yaw!==null) ws.sock.rotation.y = yaw + Math.sin(now*1.7+ws.phase)*0.10*t;
+    ws.sock.rotation.x = droop + Math.sin(now*2.3+ws.phase)*0.05*t;
+    // 各節をわずかに波打たせて布らしく見せる（風が強いほど速く小さく波打つ）
+    for (let i=0;i<ws.segs.length;i++){
+      ws.segs[i].rotation.z = Math.sin(now*(3+speed*0.25)+ws.phase+i*0.6)*0.06*t;
+    }
+  }
+}
 export function updateTargets(dt,now){
+  updateWindsocks(now);   // 吹き流しは的の生死に関係なく常に更新する
   if (S.mode!=="range") return;   // 射撃練習モード以外は非表示
   for (const tg of targets){
     if (tg.mover){
