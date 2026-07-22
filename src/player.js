@@ -10,7 +10,7 @@ import { gun, gunCorrected, MUZZLE_LOCAL, MUZZLE_LOCAL_MODEL, muzzleInGunLocal,
   AIM_PX_X, AIM_PX_Y, exitSightCal, currentWeapon } from "./gun.js";
 import { p2pBroadcast, p2pSendToHost } from "./p2p.js";
 import { detectTouchDevice, initTouchMenuHints, requestPlayLock, setPlayLocked,
-  wireMobileControls } from "./mobile.js";
+  wireMobileControls, isLandscape, enterMobileDisplay } from "./mobile.js";
 
 export const LEAN_MAX_ROLL = 12*Math.PI/180;   // 最大ロール角
 export const LEAN_MAX_OFFSET = 0.4;            // 最大横オフセット(m)
@@ -378,8 +378,12 @@ export function wireInput({ edit, editPlace, editDelete, makeGhost, updateEditHU
   wireMobileControls({ startReload, tryShoot, pauseToMenu });
 
   /* ポインタロック / タッチプレイ開始 */
-  $("startBtn").addEventListener("click",()=>{
+  $("startBtn").addEventListener("click", async ()=>{
     audio();
+    if (document.body.classList.contains("touch-device")){
+      if (!isLandscape()){ sndClick(280,.15); return; }
+      await enterMobileDisplay();
+    }
     if (S.mode==="pvp"){
       $("menu").style.display="none";
       $("pvpLobby").classList.add("show");
@@ -394,7 +398,7 @@ export function wireInput({ edit, editPlace, editDelete, makeGhost, updateEditHU
     if (S.mode!==RT.appliedMode || (S.mode==="vs" && !S.vs.active)){
       applyMode(); RT.appliedMode=S.mode;
     }
-    requestPlayLock();
+    await requestPlayLock();
   });
   document.addEventListener("pointerlockchange",()=>{
     if (RT.touchPlay) return;

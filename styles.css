@@ -154,6 +154,13 @@ select{background:#1a2230;color:var(--text);border:1px solid rgba(255,255,255,.1
 #credit a{color:#58a6ff;text-decoration:none;pointer-events:auto}
 
 /* ===== スマホ / タッチ操作 ===== */
+#rotateHint{display:none;position:fixed;inset:0;z-index:200;align-items:center;justify-content:center;
+  background:#0d1117;color:var(--text);text-align:center;padding:24px;touch-action:none}
+body.touch-device.portrait-block #rotateHint{display:flex}
+.rotateHintBox{max-width:320px}
+.rotateIcon{font-size:56px;line-height:1;margin-bottom:16px;animation:rotateHint 2s ease-in-out infinite}
+.rotateSub{margin-top:10px;font-size:13px;color:var(--dim)}
+@keyframes rotateHint{0%,100%{transform:rotate(-90deg)}50%{transform:rotate(0deg)}}
 #mobileControls{display:none;position:fixed;inset:0;pointer-events:none;z-index:16;
   touch-action:none}
 body.touch-play #mobileControls{display:block;pointer-events:auto}
@@ -204,6 +211,8 @@ body.touch-play #ammoPanel{right:max(8px,env(safe-area-inset-right));
 body.touch-play #ammo{font-size:28px}
 body.touch-play canvas{touch-action:none}
 body.touch-play{touch-action:none;overscroll-behavior:none}
+html:fullscreen,html:-webkit-full-screen{background:var(--bg)}
+body.mobile-fs #menu,body.mobile-fs #pvpLobby{background:#0d1117}
 
 /* ===== サイト調整（デバッグ）パネル ===== */
 #sightCalPanel{position:fixed;top:16px;right:16px;width:340px;max-height:94vh;

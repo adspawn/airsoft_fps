@@ -6,21 +6,87 @@ import { currentWeapon } from "./gun.js";
 import { sndClick } from "./sound.js";
 
 let touchDevice = false;
+let mobileDisplayActive = false;
 const stick = { active:false, touchId:null, dx:0, dy:0 };
 let lookId = null, lookLastX = 0, lookLastY = 0;
 
 export function isTouchDevice(){ return touchDevice; }
 
+export function isLandscape(){
+  return window.matchMedia("(orientation: landscape)").matches;
+}
+
+function updatePortraitBlock(){
+  if (!touchDevice) return;
+  document.body.classList.toggle("portrait-block", !isLandscape());
+}
+
 export function detectTouchDevice(){
   touchDevice = window.matchMedia("(pointer: coarse)").matches
     || (navigator.maxTouchPoints > 0 && Math.min(window.screen.width, window.screen.height) <= 900);
   document.body.classList.toggle("touch-device", touchDevice);
+  if (touchDevice){
+    updatePortraitBlock();
+    window.matchMedia("(orientation: landscape)").addEventListener("change", ()=>{
+      updatePortraitBlock();
+      if (RT.touchPlay && isLandscape()) lockLandscape().catch(()=>{});
+    });
+  }
   return touchDevice;
+}
+
+/** 全画面＋横画面固定（ユーザー操作の直後に呼ぶ） */
+export async function enterMobileDisplay(){
+  if (!touchDevice) return;
+  updatePortraitBlock();
+  if (!isLandscape()){
+    /* 縦持ちのままでは開始しない（rotateHint を表示） */
+    return false;
+  }
+  const root = document.documentElement;
+  try {
+    if (!document.fullscreenElement && !document.webkitFullscreenElement){
+      if (root.requestFullscreen) await root.requestFullscreen();
+      else if (root.webkitRequestFullscreen) root.webkitRequestFullscreen();
+    }
+  } catch (err){
+    console.warn("fullscreen failed", err);
+  }
+  await lockLandscape();
+  mobileDisplayActive = !!(document.fullscreenElement || document.webkitFullscreenElement);
+  document.body.classList.add("mobile-fs");
+  return true;
+}
+
+export async function exitMobileDisplay(){
+  if (!touchDevice) return;
+  try {
+    if (screen.orientation?.unlock) screen.orientation.unlock();
+  } catch (err){ /* ignore */ }
+  try {
+    if (document.fullscreenElement && document.exitFullscreen) await document.exitFullscreen();
+    else if (document.webkitFullscreenElement && document.webkitExitFullscreen){
+      document.webkitExitFullscreen();
+    }
+  } catch (err){ /* ignore */ }
+  mobileDisplayActive = false;
+  document.body.classList.remove("mobile-fs");
+  updatePortraitBlock();
+}
+
+async function lockLandscape(){
+  if (!screen.orientation?.lock) return;
+  try {
+    await screen.orientation.lock("landscape");
+  } catch (err){
+    try { await screen.orientation.lock("landscape-primary"); }
+    catch (err2){ console.warn("orientation lock failed", err2); }
+  }
 }
 
 export function initTouchMenuHints(){
   if (!touchDevice) return;
-  $("startBtn").textContent = "タップして開始";
+  $("startBtn").textContent = "タップして開始（横・全画面）";
   const help = $("mobileHelp");
   if (help) help.style.display = "block";
   const editBtn = $("modeEdit");
@@ -64,12 +130,18 @@ export function setPlayLocked(locked){
     RT.ads = false;
     lookId = null;
     resetStick();
+    if (touchDevice) exitMobileDisplay();
   }
 }
 
-export function requestPlayLock(){
-  if (touchDevice) setPlayLocked(true);
-  else renderer.domElement.requestPointerLock();
+export async function requestPlayLock(){
+  if (touchDevice){
+    const ok = await enterMobileDisplay();
+    if (!ok) return;
+    setPlayLocked(true);
+    return;
+  }
+  renderer.domElement.requestPointerLock();
 }
 
 function applyLookDelta(dx, dy){
@@ -216,7 +288,16 @@ export function wireMobileControls({ startReload, tryShoot, pauseToMenu }){
     pauseToMenu();
   });
 
-  /* タッチ後に合成 mouse イベントで二重発射しない */
+  document.addEventListener("fullscreenchange", onFullscreenChange);
+  document.addEventListener("webkitfullscreenchange", onFullscreenChange);
+  function onFullscreenChange(){
+    if (!touchDevice) return;
+    const fs = !!(document.fullscreenElement || document.webkitFullscreenElement);
+    document.body.classList.toggle("mobile-fs", fs);
+    if (RT.touchPlay && fs) lockLandscape().catch(()=>{});
+    if (RT.touchPlay && !fs) pauseToMenu();
+  }
+
   let lastTouch = 0;
   document.addEventListener("touchstart", ()=>{ lastTouch = performance.now(); }, { capture:true, passive:true });
   document.addEventListener("mousedown", e=>{

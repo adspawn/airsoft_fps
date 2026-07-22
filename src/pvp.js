@@ -16,7 +16,7 @@ import { spawnParticles, showMsg } from "./effects.js";
 import { sndHitMe, sndShotFar } from "./sound.js";
 import { spawnBB } from "./bb.js";
 import { applySpread, updateAmmoHUD } from "./player.js";
-import { requestPlayLock } from "./mobile.js";
+import { requestPlayLock, exitMobileDisplay } from "./mobile.js";
 import { buildBotMesh, spawnBots, DIFF_PARAMS, DIFF_NAMES, losClear, resolveBotCollision,
   pickWp, angleDelta, startDeathSequence, endDeathSequence, genVsField, genRandomVsProps,
   loadCustomMap, setBotSeek, setBotHold, yukaUpdate, syncBotFromVehicle } from "./bots.js";
@@ -795,6 +795,7 @@ export function wirePvpLobbyUI(){
     pvpLeaveRoom();
     $("pvpLobby").classList.remove("show");
     $("menu").style.display="flex";
+    exitMobileDisplay();
   });
   function pvpSetGameType(t){
     const btns={br:$("pvpGameTypeBr"), elim:$("pvpGameTypeElim"), flag:$("pvpGameTypeFlag")};

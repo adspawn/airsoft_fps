@@ -4,10 +4,22 @@
 <meta charset="utf-8">
 <title>エアソフトFPS — BB弾道シミュレーション搭載</title>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0d1117">
 <link rel="stylesheet" href="styles.css">
 </head>
 
 <body>
+
+<div id="rotateHint" aria-hidden="true">
+  <div class="rotateHintBox">
+    <div class="rotateIcon" aria-hidden="true">⟳</div>
+    <p>スマホは<strong>横向き</strong>でプレイしてください</p>
+    <p class="rotateSub">端末を回転すると全画面で開始できます</p>
+  </div>
+</div>
 
 <div id="hud">
   <div id="crosshair">
@@ -456,7 +468,7 @@
     </div>
     <button id="startBtn">クリックして開始</button>
     <div id="mobileHelp" class="sub" style="display:none;margin-top:10px;line-height:1.6">
-      左スティックで移動・右半分をドラッグで視点・右下ボタンで射撃／ADS。マップ作成・サイト調整はPC向けのため省略しています。
+      横向き・全画面推奨。左スティックで移動・右半分ドラッグで視点・右下で射撃／ADS。マップ作成はPC向けのため省略。
     </div>
 
     <div id="controls">
