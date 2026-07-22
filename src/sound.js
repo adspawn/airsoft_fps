@@ -12,6 +12,7 @@ export function audio(){
     for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1;
   }
   if(AC.state==="suspended") AC.resume();
+  getReloadEl();   // リロードSEを先読み
   return AC;
 }
 export function sndShot(){
@@ -45,28 +46,24 @@ export function sndClick(freq=700,vol=.25){
   g.gain.setValueAtTime(vol,t); g.gain.exponentialRampToValueAtTime(.001,t+.03);
   o.connect(g).connect(c.destination); o.start(t); o.stop(t+.04);
 }
-const RELOAD_SFX_URL = encodeURI("assets/サブマシンガンの弾倉をセット.mp3");
-let reloadBuf=null, reloadBufLoading=null;
-function loadReloadBuf(){
-  if (reloadBuf) return Promise.resolve(reloadBuf);
-  if (reloadBufLoading) return reloadBufLoading;
-  const c=audio();
-  reloadBufLoading=fetch(RELOAD_SFX_URL)
-    .then(r=>r.arrayBuffer())
-    .then(ab=>c.decodeAudioData(ab))
-    .then(buf=>{ reloadBuf=buf; reloadBufLoading=null; return buf; })
-    .catch(err=>{ reloadBufLoading=null; console.warn("reload sfx load failed", err); });
-  return reloadBufLoading;
+/* リロード音: モジュール相対パスで解決（PagesのURL末尾スラッシュ差や日本語ファイル名の404を避ける） */
+const RELOAD_SFX_URL = new URL("../assets/sfx_reload.mp3", import.meta.url).href;
+let reloadEl=null;
+function getReloadEl(){
+  if (!reloadEl){
+    reloadEl=new Audio(RELOAD_SFX_URL);
+    reloadEl.preload="auto";
+    reloadEl.volume=.85;
+  }
+  return reloadEl;
 }
 export function sndReload(){
-  const c=audio();
-  loadReloadBuf().then(buf=>{
-    if (!buf) return;
-    const src=c.createBufferSource(); src.buffer=buf;
-    const g=c.createGain(); g.gain.value=.7;
-    src.connect(g).connect(c.destination);
-    src.start();
-  });
+  audio();   // ユーザー操作経由で AudioContext を起こす（自動再生制限対策）
+  const base=getReloadEl();
+  // clone で連打時も頭から鳴らせる。currentTime リセットより確実
+  const a=base.cloneNode();
+  a.volume=base.volume;
+  a.play().catch(err=>console.warn("reload sfx play failed", err, RELOAD_SFX_URL));
 }
 export function sndTink(dist){
   const c=audio(), t=c.currentTime + dist/ENV.snd;

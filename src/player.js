@@ -132,7 +132,7 @@ export function applySpread(dir,deg){
 export function tryShoot(){
   if ((!RT.locked && !sightCal.active) || S.mode==="edit" || weapon.reloading || weapon.cooldown>0) return;
   if (!sightCal.active){
-    if (weapon.mag<=0){ sndClick(1000,.15); startReload(); return; }   // 弾切れ→オートリロード
+    if (weapon.mag<=0){ startReload(); return; }   // 弾切れ→オートリロード（音は sndReload）
     weapon.mag--; S.shots++;
   }
   weapon.cooldown = weapon.mode==="FULL"? 1/S.cycle : 0.09;
