@@ -13,8 +13,9 @@ import { THREE, S, $, camera, scene, RT, sightCal, sightCalOrbit, player, weapon
    ============================================================ */
 export const WEAPONS = {
   type20: {
+    // 光学サイト付きなので、ADSではスナイパー同様スコープ表示にして銃本体を隠す
     name:"アサルトライフル", file:"howa_type_20.glb", len:0.85,
-    modes:["SEMI","FULL"], pellets:1, scope:false,
+    modes:["SEMI","FULL"], pellets:1, scope:true,
     /* このモデルは原点が機関部の下前方寄りなので、保持位置は他モデルより下げ・後ろへ置く
        （銃の見た目の中心が腰だめの標準位置に来るよう調整した値） */
     cal:{pitchDeg:0, yawDeg:0, rollDeg:0, crossX:0, crossY:0, fovDeg:25,
@@ -81,46 +82,72 @@ const S_CAL_KEY="airsoft_fps_sight_calib";
    一時的にcorrectedのT・Rだけ単位化（Sはそのまま）して測定することで、
    後の corrected.position = F0 - q.applyQuaternion(F0)（scale込みの相似変換）の
    前提と一致する座標を得る */
-function measureSightPoints(corrected){
+/* corrected局所空間の全頂点を走査する（スキンメッシュ・通常メッシュどちらも対応）。
+   走査中だけ corrected の T・R を単位化し、終わったら必ず元へ戻す */
+function forEachVertexLocal(corrected, cb){
   const savedPos=corrected.position.clone(), savedQuat=corrected.quaternion.clone();
   corrected.position.set(0,0,0); corrected.quaternion.identity();
   corrected.updateMatrixWorld(true);
   const invParent=new THREE.Matrix4().copy(corrected.parent.matrixWorld).invert();
   const v=new THREE.Vector3();
-  let mMinZ=1e9,mAtX=0,mAtY=0;   // マズル先端＝モデル全体で最もZが小さい（前方）頂点
-  let bMaxY=-1e9, bMaxZ=-1e9;
-  /* スキンメッシュ・通常メッシュどちらも走査できるようにする
-     （モデルによってスキン構成のものと通常メッシュのものがある） */
-  /* 1周目: 全体のバウンディングとマズル先端を求める */
-  const visit=(mesh, cb)=>{
-    const toScaledLocal=new THREE.Matrix4().multiplyMatrices(invParent, mesh.matrixWorld);
-    const posAttr=mesh.geometry.attributes.position;
+  corrected.traverse(o=>{
+    if (!o.isMesh) return;
+    const toScaledLocal=new THREE.Matrix4().multiplyMatrices(invParent, o.matrixWorld);
+    const posAttr=o.geometry.attributes.position;
     if (!posAttr) return;
     for (let i=0;i<posAttr.count;i++){
-      if (mesh.isSkinnedMesh) mesh.getVertexPosition(i,v);
+      if (o.isSkinnedMesh) o.getVertexPosition(i,v);
       else v.fromBufferAttribute(posAttr,i);
       v.applyMatrix4(toScaledLocal);
       cb(v);
     }
-  };
-  corrected.traverse(o=>{ if (o.isMesh) visit(o, (p)=>{
+  });
+  corrected.position.copy(savedPos); corrected.quaternion.copy(savedQuat);
+  corrected.updateMatrixWorld(true);
+}
+/* 銃口が-Z(前方)を向いているかを判定する。
+   「最も前にある頂点＝銃口」とみなすとストックの方が長く伸びているモデルで
+   前後を取り違えるため、両端の“断面の太さ”を比べる（銃身の先端は細く、床尾板側は太い）。
+   バンドを広く取るとフォアエンド/ポンプの太さを拾って逆転するので、ごく先端だけを見る */
+const MUZZLE_TIP_BAND=0.03;
+function muzzleFacesForward(corrected){
+  let zMin=1e9, zMax=-1e9;
+  forEachVertexLocal(corrected, p=>{
+    if (p.z<zMin) zMin=p.z;
+    if (p.z>zMax) zMax=p.z;
+  });
+  const band=(zMax-zMin)*MUZZLE_TIP_BAND;
+  const acc=[{x0:1e9,x1:-1e9,y0:1e9,y1:-1e9},{x0:1e9,x1:-1e9,y0:1e9,y1:-1e9}];
+  forEachVertexLocal(corrected, p=>{
+    const i = p.z < zMin+band ? 0 : p.z > zMax-band ? 1 : -1;
+    if (i<0) return;
+    const a=acc[i];
+    if (p.x<a.x0) a.x0=p.x; if (p.x>a.x1) a.x1=p.x;
+    if (p.y<a.y0) a.y0=p.y; if (p.y>a.y1) a.y1=p.y;
+  });
+  const area=a=>Math.max(0,a.x1-a.x0)*Math.max(0,a.y1-a.y0);
+  return area(acc[0]) <= area(acc[1]);   // -Z端の方が細ければ銃口は前を向いている
+}
+function measureSightPoints(corrected){
+  let mMinZ=1e9,mAtX=0,mAtY=0;   // マズル先端＝モデル全体で最もZが小さい（前方）頂点
+  let bMaxY=-1e9, bMaxZ=-1e9;
+  /* 1周目: 全体のバウンディングとマズル先端を求める */
+  forEachVertexLocal(corrected, p=>{
     if (p.y>bMaxY) bMaxY=p.y;
     if (p.z>bMaxZ) bMaxZ=p.z;
     if (p.z<mMinZ){ mMinZ=p.z; mAtX=p.x; mAtY=p.y; }
-  }); });
+  });
   /* 2周目: 銃の一番上のバンド(＝アイアンサイト/スコープが載っている高さ)だけを抜き出し、
      その前後端と高さからサイトの位置を推定する。モデルの原点やストック長に依存せず、
      どの銃でも「照準器そのもの」を基準にできる */
   let sMinY=1e9, sMinZ=1e9, sMaxZ=-1e9;
-  const yThresh=bMaxY-(bMaxY-  0)*0.15;
-  corrected.traverse(o=>{ if (o.isMesh) visit(o, (p)=>{
+  const yThresh=bMaxY*0.85;
+  forEachVertexLocal(corrected, p=>{
     if (p.y<yThresh) return;
     if (p.y<sMinY) sMinY=p.y;
     if (p.z<sMinZ) sMinZ=p.z;
     if (p.z>sMaxZ) sMaxZ=p.z;
-  }); });
-  corrected.position.copy(savedPos); corrected.quaternion.copy(savedQuat);
-  corrected.updateMatrixWorld(true);
+  });
   const sightY = sMinY<1e8 ? (sMinY+bMaxY)/2 : bMaxY*0.92;   // 照準器の光軸のおおよその高さ
   const eyeZ   = sMaxZ>-1e8 ? sMaxZ : bMaxZ*0.35;            // 接眼側(手前端)＝目を置く基準
   const tipZ   = sMinZ<1e8 ? sMinZ : mMinZ*0.72;             // 対物側(前端)
@@ -288,13 +315,12 @@ function loadWeaponModel(type){
       if (size.x>size.z && size.x>=size.y) inner.rotation.y += Math.PI/2;        // 長手がX軸 → Zへ
       else if (size.y>size.z && size.y>size.x) inner.rotation.x += Math.PI/2;    // 長手がY軸 → Zへ
       fit();
-      let pts = measureSightPoints(corrected);
-      // マズル（最も先端の頂点）が+Z側にある＝後ろ向きなので180°回して-Z(前方)へ揃える
-      if (pts.muzzle.z > 0){
+      // 銃身側(細い方)が-Z(前方)に来ていなければ180°回して前後を揃える
+      if (!muzzleFacesForward(corrected)){
         inner.rotation.y += Math.PI;
         fit();
-        pts = measureSightPoints(corrected);
       }
+      const pts = measureSightPoints(corrected);
       /* ADSで銃を前へ出す量: サイト(照準器)が常に一定のアイレリーフでカメラ前に来るようにする。
          モデルの原点は中心とは限らない（機関部の下前方などにある）ため全長からは決められない。
          この置き方ならストックは自然とカメラの後方へ回り込んで視界に入らない */
