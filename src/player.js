@@ -7,7 +7,7 @@ import { simulate2D, solveOptimalSpin } from "./physics.js";
 import { sndClick, sndShot, sndReload, audio } from "./sound.js";
 import { spawnBB, resolveHipAimPoint } from "./bb.js";
 import { gun, gunCorrected, MUZZLE_LOCAL, MUZZLE_LOCAL_MODEL, muzzleInGunLocal,
-  AIM_PX_X, AIM_PX_Y, exitSightCal } from "./gun.js";
+  AIM_PX_X, AIM_PX_Y, exitSightCal, currentWeapon } from "./gun.js";
 import { p2pBroadcast, p2pSendToHost } from "./p2p.js";
 
 export const LEAN_MAX_ROLL = 12*Math.PI/180;   // 最大ロール角
@@ -119,7 +119,7 @@ export function updatePlayer(dt){
    射撃
    ============================================================ */
 const _dir=new THREE.Vector3(), _right=new THREE.Vector3(), _spawn=new THREE.Vector3(),
-      _up2=new THREE.Vector3(), _leanUp=new THREE.Vector3(),
+      _up2=new THREE.Vector3(), _leanUp=new THREE.Vector3(), _pellet=new THREE.Vector3(),
       _camDir=new THREE.Vector3(), _aimPt=new THREE.Vector3();
 /* 円錐拡散をdirに適用 */
 export function applySpread(dir,deg){
@@ -157,20 +157,25 @@ export function tryShoot(){
     // ADS/サイト調整で照準ズレ無し: カメラ正面へ
     camera.getWorldDirection(_dir);
   }
-  // 拡散（ADS・静止・しゃがみで向上）
+  // 散り具合（サイト調整モードで銃ごとに設定。ADS・静止・しゃがみで向上）
   const moving=player.vel.length()>0.5;
-  applySpread(_dir,(RT.ads?0.10:0.45)*(moving?1.8:1)*(player.crouch?0.7:1));
+  const spreadDeg=(RT.ads?sightCal.spreadAds:sightCal.spreadHip)*(moving?1.8:1)*(player.crouch?0.7:1);
+  const myTeam = S.mode==="pvp" ? pvp.myTeam : S.mode==="vs" ? vsMyTeam() : null;
   // リーン中は銃が傾いている分だけホップアップの回転軸も傾け、弾道が斜めに揚力を受けるようにする
   _leanUp.copy(UP);
   if (player.lean) _leanUp.applyAxisAngle(_dir, player.lean*LEAN_MAX_ROLL);
-  spawnBB(_spawn,_dir,S.v0,S.spinRps,"player",null,_leanUp,
-    S.mode==="pvp" ? pvp.myTeam : S.mode==="vs" ? vsMyTeam() : null);
-
-  if (S.mode==="pvp" && pvp.inMatch){
-    const shot={origin:{x:_spawn.x,y:_spawn.y,z:_spawn.z}, dir:{x:_dir.x,y:_dir.y,z:_dir.z},
-      v0:S.v0, spinRps:S.spinRps};
-    if (pvp.iAmHost) p2pBroadcast("shot", {id:pvp.myId, ...shot});
-    else p2pSendToHost("shot", shot);
+  // ショットガンは1トリガーで複数発（pellets）を同時発射する
+  const pellets=currentWeapon().pellets||1;
+  for (let i=0;i<pellets;i++){
+    _pellet.copy(_dir);
+    applySpread(_pellet, spreadDeg);
+    spawnBB(_spawn,_pellet,S.v0,S.spinRps,"player",null,_leanUp,myTeam);
+    if (S.mode==="pvp" && pvp.inMatch){
+      const shot={origin:{x:_spawn.x,y:_spawn.y,z:_spawn.z},
+        dir:{x:_pellet.x,y:_pellet.y,z:_pellet.z}, v0:S.v0, spinRps:S.spinRps};
+      if (pvp.iAmHost) p2pBroadcast("shot", {id:pvp.myId, ...shot});
+      else p2pSendToHost("shot", shot);
+    }
   }
 
   weapon.kick=1;
@@ -276,9 +281,13 @@ export function wireInput({ edit, editPlace, editDelete, makeGhost, updateEditHU
     }
     if (e.code==="KeyR") startReload();
     if (e.code==="KeyB"){
-      weapon.mode = weapon.mode==="SEMI"?"FULL":"SEMI";
-      $("fireMode").textContent = weapon.mode==="SEMI"?"SEMI":"FULL AUTO";
-      sndClick(500,.2);
+      // ショットガン・スナイパーライフルはセミオート固定（切替不可）
+      const modes=currentWeapon().modes;
+      if (modes.length>1){
+        weapon.mode = weapon.mode==="SEMI"?"FULL":"SEMI";
+        $("fireMode").textContent = weapon.mode==="SEMI"?"SEMI":"FULL AUTO";
+        sndClick(500,.2);
+      } else sndClick(240,.12);
     }
     if (e.code==="KeyC") player.crouchToggle=!player.crouchToggle;
     if (e.code==="BracketRight") adjustHop(+10);

@@ -5,7 +5,7 @@ import { $, S, RT, clearKeys, weapon, MAG_SIZE, EYE_H, player, targets, pvp,
   VS_ARENA, PLAYER_FLAG, RED_NPC_SPAWNS, BLUE_NPC_SPAWNS, RED_PLAYER_SPAWNS } from "./state.js";
 import { solveOptimalSpin } from "./physics.js";
 import { bbPool, killBB } from "./bb.js";
-import { gun } from "./gun.js";
+import { gun, setWeapon } from "./gun.js";
 import { updateScoreHUD, plateMat } from "./targets.js";
 import { enterEditMode, exitEditMode } from "./mapEditor.js";
 import { updateAmmoHUD, onHopChanged, onLoadoutChanged } from "./player.js";
@@ -151,6 +151,8 @@ export function wireMenuUI(){
     for (const id of ["rowNpcCount","rowDiff"]) $(id).style.display=(vs&&!teamed)?"flex":"none";
     for (const id of ["rowVsNpcRed","rowVsNpcRedDiff","rowVsNpcBlue","rowVsNpcBlueDiff"])
       $(id).style.display=(vs&&teamed)?"flex":"none";
+    // 銃の種類・跳弾ヒットは射撃が発生する全モードで共通（マップ作成のみ非表示）
+    $("rowWeapon").style.display = S.mode==="edit" ? "none" : "flex";
     $("rowRicochet").style.display = S.mode==="edit" ? "none" : "flex";
   }
   const modeBtns={range:$("modeRange"), vs:$("modeVs"), edit:$("modeEdit"), pvp:$("modePvp")};
@@ -170,6 +172,12 @@ export function wireMenuUI(){
   $("vsMapCustom").addEventListener("click",()=>{
     S.vsMap="custom";
     $("vsMapCustom").classList.add("sel"); $("vsMapRandom").classList.remove("sel");
+  });
+  $("weaponChips").addEventListener("click",e=>{
+    const b=e.target.closest(".chip"); if(!b) return;
+    $("weaponChips").querySelectorAll(".chip").forEach(c=>c.classList.remove("sel"));
+    b.classList.add("sel");
+    setWeapon(b.dataset.w);
   });
   $("diffChips").addEventListener("click",e=>{
     const b=e.target.closest(".chip"); if(!b) return;

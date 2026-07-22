@@ -15,7 +15,7 @@ export const $ = id=>document.getElementById(id);
    ============================================================ */
 export const S = {
   massG:0.20, v0:92, drag:"loth", tracer:true, sens:1.0, cycle:13,   // 抗力: Loth(Cd≈0.45)固定
-  mode:"range", diff:"normal", vsMap:"random",
+  mode:"range", weaponType:"ar15", diff:"normal", vsMap:"random",
   /* 対戦(NPC)のルールはオンラインPVPと同一の3種類に統一（br=バトルロワイアル / elim=殲滅戦 / flag=フラッグ戦） */
   vsRuleset:"br",
   vsNpcCount:3,                                    // バトルロワイアル用（チーム無し）
@@ -264,5 +264,6 @@ export function pvpFriendly(teamA, teamB){
 export const sightCal = {active:false, pitch:-0.7, yaw:-0.6, roll:0, crossX:30, crossY:0, fov:25,
   muzzleX:-0.002, muzzleY:-0.007, muzzleZ:0.357, crossSize:0, circleSize:0,
   hipX:0.235, hipY:-0.225, hipZ:-0.35,   // 銃の保持位置（腰だめ描写）＝GUN_HIP既定値
+  spreadHip:0.45, spreadAds:0.10,        // BB弾の散り具合（円錐半頂角・度）: 腰だめ / ADS
   walk:false, walkDragging:false};      // walk: WASD移動で確認するサブモード
 export const sightCalOrbit = {active:false, dragging:false, yaw:0.6, pitch:0.35, dist:0.3};

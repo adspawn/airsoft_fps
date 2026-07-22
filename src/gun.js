@@ -2,7 +2,39 @@
    ビューモデル（電動ガン M4風）・AR-15 GLTFモデル・アイアンサイト校正・
    サイト調整（デバッグ）モード
    ============================================================ */
-import { THREE, $, camera, scene, RT, sightCal, sightCalOrbit, player, weapon, MAG_SIZE } from "./state.js";
+import { THREE, S, $, camera, scene, RT, sightCal, sightCalOrbit, player, weapon, MAG_SIZE } from "./state.js";
+
+/* ============================================================
+   銃の種類（ビューモデル・射撃特性・既定キャリブレーション）
+   pellets: 1回の発射で出るBB弾の数（ショットガンは3発同時）
+   modes:   使用できる射撃モード（ショットガン・スナイパーはセミオートのみ）
+   scope:   ADS時にスコープ表示にするか（スナイパーライフル）
+   cal:     このモデル用の既定サイト調整値（サイト調整モードで上書き保存できる）
+   ============================================================ */
+export const WEAPONS = {
+  ar15: {
+    name:"アサルトライフル", file:"ar15.glb", len:0.84,
+    modes:["SEMI","FULL"], pellets:1, scope:false,
+    cal:{pitchDeg:-0.7, yawDeg:-0.6, rollDeg:0, crossX:30, crossY:0, fovDeg:25,
+         muzzleX:-0.002, muzzleY:-0.007, muzzleZ:0.357, crossSize:0, circleSize:0,
+         hipX:0.235, hipY:-0.225, hipZ:-0.35, spreadHip:0.45, spreadAds:0.10},
+  },
+  shotgun: {
+    name:"ショットガン", file:"hawk_18.4mm_type_97-1_shotgun_qfb_18.4mm.glb", len:0.95,
+    modes:["SEMI"], pellets:3, scope:false,
+    cal:{pitchDeg:0, yawDeg:0, rollDeg:0, crossX:0, crossY:0, fovDeg:45,
+         muzzleX:0, muzzleY:0, muzzleZ:0, crossSize:0, circleSize:0,
+         hipX:0.235, hipY:-0.225, hipZ:-0.35, spreadHip:2.2, spreadAds:1.6},
+  },
+  sniper: {
+    name:"スナイパーライフル", file:"hunting_rifle.glb", len:1.10,
+    modes:["SEMI"], pellets:1, scope:true,
+    cal:{pitchDeg:0, yawDeg:0, rollDeg:0, crossX:0, crossY:0, fovDeg:12,
+         muzzleX:0, muzzleY:0, muzzleZ:0, crossSize:0, circleSize:0,
+         hipX:0.235, hipY:-0.225, hipZ:-0.35, spreadHip:0.70, spreadAds:0.02},
+  },
+};
+export function currentWeapon(){ return WEAPONS[S.weaponType]||WEAPONS.ar15; }
 
 /* ---- プロシージャル銃（GLTFロード完了までのフォールバック表示） ---- */
 export const gun = new THREE.Group();
@@ -47,50 +79,95 @@ const S_CAL_KEY="airsoft_fps_sight_calib";
    一時的にcorrectedのT・Rだけ単位化（Sはそのまま）して測定することで、
    後の corrected.position = F0 - q.applyQuaternion(F0)（scale込みの相似変換）の
    前提と一致する座標を得る */
-function measureSightPoints(corrected, skinned){
+function measureSightPoints(corrected, skinned, isAr15){
   const savedPos=corrected.position.clone(), savedQuat=corrected.quaternion.clone();
   corrected.position.set(0,0,0); corrected.quaternion.identity();
   corrected.updateMatrixWorld(true);
   const invParent=new THREE.Matrix4().copy(corrected.parent.matrixWorld).invert();
-  const toScaledLocal=new THREE.Matrix4().multiplyMatrices(invParent, skinned.matrixWorld);
-  const posAttr=skinned.geometry.attributes.position, v=new THREE.Vector3();
+  const v=new THREE.Vector3();
   let rminX=1e9,rmaxX=-1e9,rminY=1e9,rmaxY=-1e9,rzSum=0,rN=0;
   let fMaxY=-1e9,fAtX=0,fzSum=0,fN=0;
   let mMinZ=1e9,mAtX=0,mAtY=0;   // マズル先端＝モデル全体で最もZが小さい（前方）頂点
-  for (let i=0;i<posAttr.count;i++){
-    skinned.getVertexPosition(i,v);
-    v.applyMatrix4(toScaledLocal);
-    if (v.z>0.09&&v.z<0.20&&v.y>0.09&&v.y<0.18){
-      rminX=Math.min(rminX,v.x);rmaxX=Math.max(rmaxX,v.x);
-      rminY=Math.min(rminY,v.y);rmaxY=Math.max(rmaxY,v.y);rzSum+=v.z;rN++;
+  let bMaxY=-1e9, bMaxZ=-1e9;
+  /* スキンメッシュ・通常メッシュどちらも走査できるようにする
+     （AR15はスキンメッシュだが、ショットガン/ハンティングライフルは通常メッシュ） */
+  const visit=(mesh)=>{
+    const toScaledLocal=new THREE.Matrix4().multiplyMatrices(invParent, mesh.matrixWorld);
+    const posAttr=mesh.geometry.attributes.position;
+    if (!posAttr) return;
+    for (let i=0;i<posAttr.count;i++){
+      if (mesh.isSkinnedMesh) mesh.getVertexPosition(i,v);
+      else v.fromBufferAttribute(posAttr,i);
+      v.applyMatrix4(toScaledLocal);
+      if (isAr15){
+        if (v.z>0.09&&v.z<0.20&&v.y>0.09&&v.y<0.18){
+          rminX=Math.min(rminX,v.x);rmaxX=Math.max(rmaxX,v.x);
+          rminY=Math.min(rminY,v.y);rmaxY=Math.max(rmaxY,v.y);rzSum+=v.z;rN++;
+        }
+        if (v.z>-0.31&&v.z<-0.27){ fzSum+=v.z;fN++; if(v.y>fMaxY){fMaxY=v.y;fAtX=v.x;} }
+      }
+      if (v.y>bMaxY) bMaxY=v.y;
+      if (v.z>bMaxZ) bMaxZ=v.z;
+      if (v.z<mMinZ){ mMinZ=v.z; mAtX=v.x; mAtY=v.y; }
     }
-    if (v.z>-0.31&&v.z<-0.27){ fzSum+=v.z;fN++; if(v.y>fMaxY){fMaxY=v.y;fAtX=v.x;} }
-    if (v.z<mMinZ){ mMinZ=v.z; mAtX=v.x; mAtY=v.y; }
-  }
+  };
+  if (isAr15 && skinned) visit(skinned);
+  else corrected.traverse(o=>{ if (o.isMesh) visit(o); });
   corrected.position.copy(savedPos); corrected.quaternion.copy(savedQuat);
   corrected.updateMatrixWorld(true);
+  if (isAr15 && rN>0 && fN>0){
+    return {
+      front:new THREE.Vector3(fAtX,fMaxY,fzSum/(fN||1)),
+      rear:new THREE.Vector3((rminX+rmaxX)/2,(rminY+rmaxY)/2,rzSum/(rN||1)),
+      muzzle:new THREE.Vector3(mAtX,mAtY,mMinZ),
+    };
+  }
+  /* AR15以外はサイト形状のヒューリスティックが当てにならないので、
+     バウンディングボックスからおおよそのサイト線（銃身上面の前後）を推定する。
+     ここはADS時の回転ピボット基準にすぎず、実際の見た目はサイト調整モードで追い込む */
   return {
-    front:new THREE.Vector3(fAtX,fMaxY,fzSum/(fN||1)),
-    rear:new THREE.Vector3((rminX+rmaxX)/2,(rminY+rmaxY)/2,rzSum/(rN||1)),
+    front:new THREE.Vector3(0, bMaxY*0.92, mMinZ*0.72),
+    rear:new THREE.Vector3(0, bMaxY*0.92, bMaxZ*0.35),
     muzzle:new THREE.Vector3(mAtX,mAtY,mMinZ),
   };
 }
 /* pitch/yaw/roll(度) → corrected姿勢を再計算。フロント先端を常に画面中心(FRONT_LOCAL)に固定。
    十字マーカーの位置やfovDegはここでは3D側に影響しない（fovDegはADS倍率としてのみ使う） */
+/* ADS時に銃を前へどれだけ出すか。銃身が長いモデルでストック側がカメラ後方へ突き抜けて
+   視界が銃の内部で埋まらないよう、モデルの全長に応じて設定する（setWeaponが更新） */
+let ADS_Z=-0.30;
 export function applySightCalibration(pitchDeg,yawDeg,rollDeg,fovDeg=50){
   if (!gunCorrected || !FRONT_LOCAL) return;
   const e=new THREE.Euler(pitchDeg*Math.PI/180, yawDeg*Math.PI/180, rollDeg*Math.PI/180,"XYZ");
   const q=new THREE.Quaternion().setFromEuler(e);
   gunCorrected.quaternion.copy(q);
   gunCorrected.position.copy(FRONT_LOCAL).sub(FRONT_LOCAL.clone().applyQuaternion(q));
-  GUN_ADS.set(-FRONT_LOCAL.x, -FRONT_LOCAL.y, -0.30);
+  GUN_ADS.set(-FRONT_LOCAL.x, -FRONT_LOCAL.y, ADS_Z);
   ADS_FOV=fovDeg;
 }
-export function loadSightCalib(){
-  try{ return JSON.parse(localStorage.getItem(S_CAL_KEY)||"null"); }catch(e){ return null; }
+/* 保存形式は銃ごとの辞書 {ar15:{...}, shotgun:{...}, sniper:{...}}。
+   旧バージョンはAR15単体のフラットなオブジェクトだったので、その場合はar15の値として取り込む */
+function loadCalibStore(){
+  let raw=null;
+  try{ raw=JSON.parse(localStorage.getItem(S_CAL_KEY)||"null"); }catch(e){ return {}; }
+  if (!raw || typeof raw!=="object") return {};
+  if (raw.pitchDeg!==undefined) return {ar15:raw};   // 旧形式からの移行
+  return raw;
 }
-export function saveSightCalib(o){
-  localStorage.setItem(S_CAL_KEY, JSON.stringify(o));
+/* 指定した銃（省略時は現在の銃）の保存済みキャリブレーション。無ければnull */
+export function loadSightCalib(type){
+  const store=loadCalibStore();
+  return store[type||S.weaponType] || null;
+}
+export function saveSightCalib(o, type){
+  const store=loadCalibStore();
+  store[type||S.weaponType]=o;
+  localStorage.setItem(S_CAL_KEY, JSON.stringify(store));
+}
+/* 実際に使う値 = 保存値があればそれ、無ければその銃の既定キャリブレーション */
+export function effectiveCalib(type){
+  const t=type||S.weaponType;
+  return Object.assign({}, (WEAPONS[t]||WEAPONS.ar15).cal, loadSightCalib(t)||{});
 }
 /* HUDクロスヘア(#crosshair)の十字の長さ・丸の半径をCSSカスタムプロパティ経由で反映 */
 export function applyCrosshairSize(crossSize, circleSize){
@@ -103,16 +180,22 @@ export function applyCrosshairSize(crossSize, circleSize){
 export function applyGunHip(x, y, z){
   GUN_HIP.set(x!=null?x:0.235, y!=null?y:-0.225, z!=null?z:-0.35);
 }
+/* sightCalへキャリブレーション値を流し込む（3D姿勢の適用は applyCalibToScene が行う） */
+function calibToSightCal(c){
+  sightCal.pitch=c.pitchDeg||0; sightCal.yaw=c.yawDeg||0; sightCal.roll=c.rollDeg||0;
+  sightCal.crossX=c.crossX||0; sightCal.crossY=c.crossY||0; sightCal.fov=c.fovDeg||50;
+  sightCal.muzzleX=c.muzzleX||0; sightCal.muzzleY=c.muzzleY||0; sightCal.muzzleZ=c.muzzleZ||0;
+  sightCal.crossSize=c.crossSize!=null?c.crossSize:14;
+  sightCal.circleSize=c.circleSize!=null?c.circleSize:0;
+  sightCal.hipX=c.hipX!=null?c.hipX:0.235;
+  sightCal.hipY=c.hipY!=null?c.hipY:-0.225;
+  sightCal.hipZ=c.hipZ!=null?c.hipZ:-0.35;
+  sightCal.spreadHip=c.spreadHip!=null?c.spreadHip:0.45;
+  sightCal.spreadAds=c.spreadAds!=null?c.spreadAds:0.10;
+}
 // クロスヘアのサイズ・保持位置は銃モデル(GLB)の読込みを待たず、起動時に即座に反映する
 {
-  const savedCross = loadSightCalib();
-  if (savedCross){
-    sightCal.crossSize = savedCross.crossSize!=null ? savedCross.crossSize : 14;
-    sightCal.circleSize = savedCross.circleSize!=null ? savedCross.circleSize : 0;
-    if (savedCross.hipX!=null) sightCal.hipX = savedCross.hipX;
-    if (savedCross.hipY!=null) sightCal.hipY = savedCross.hipY;
-    if (savedCross.hipZ!=null) sightCal.hipZ = savedCross.hipZ;
-  }
+  calibToSightCal(effectiveCalib());
   applyCrosshairSize(sightCal.crossSize, sightCal.circleSize);
   applyGunHip(sightCal.hipX, sightCal.hipY, sightCal.hipZ);
   gun.position.copy(GUN_HIP);
@@ -155,62 +238,109 @@ export function updateMuzzleMarker(){
    Y軸180°回転のみで銃口を前方-Zへ反転（上方向Yはそのまま維持）。
    ロード後は自動でバウンディングボックスを測り、実銃全長 ~0.84m に正規化して中心を原点に揃える。
 */
-export function loadGunModel(GLTFLoader){
-  const GUN_TARGET_LEN = 0.84;
-  new GLTFLoader().load("./assets/ar15.glb", (gltf)=>{
-    const corrected = new THREE.Group();
-    corrected.add(gltf.scene);
-    // Y軸回転なし: 前回のY180°補正は前後が逆だったため撤去（銃口が自然に-Z=前方を向く姿勢）
-    corrected.updateMatrixWorld(true);
-
-    const box1 = new THREE.Box3().setFromObject(corrected);
-    const size1 = box1.getSize(new THREE.Vector3());
-    const scale = GUN_TARGET_LEN / Math.max(size1.x, size1.y, size1.z);
-    corrected.scale.setScalar(scale);
-    corrected.updateMatrixWorld(true);
-
-    const box2 = new THREE.Box3().setFromObject(corrected);
-    const center2 = box2.getCenter(new THREE.Vector3());
-    corrected.position.sub(center2);   // バウンディングボックス中心をgunグループ原点に
-    corrected.updateMatrixWorld(true);
-
-    corrected.traverse(o=>{ if (o.isMesh){ o.castShadow=true; o.receiveShadow=false; } });
-
-    gun.add(corrected);
-    gunProcedural.visible = false;
-    gunCorrected = corrected;
-    gun.add(muzzleMarker);   // gunCorrectedではなくgunの子（scaleを二重適用しないため）
-
-    let skinned=null;
-    corrected.traverse(o=>{ if (o.isSkinnedMesh) skinned=o; });
-    const pts = measureSightPoints(corrected, skinned);
-    FRONT_LOCAL = pts.front;   // corrected局所空間（scale込み・回転補正前）
-    REAR_LOCAL  = pts.rear;
-    MUZZLE_LOCAL_MODEL = pts.muzzle;   // 実マズル先端（BB弾の発射起点）
-
-    // 保存済みキャリブレーション値があれば復元、なければ実測済みの固定キャリブレーション値で開始
-    const saved = loadSightCalib();
-    const init = saved || {pitchDeg:-0.7, yawDeg:-0.6, rollDeg:0, crossX:30, crossY:0, fovDeg:25,
-      muzzleX:-0.002, muzzleY:-0.007, muzzleZ:0.357, crossSize:0, circleSize:0,
-      hipX:0.235, hipY:-0.225, hipZ:-0.35};
-    applySightCalibration(init.pitchDeg, init.yawDeg, init.rollDeg, init.fovDeg||50);
-    MUZZLE_OFFSET.set(init.muzzleX||0, init.muzzleY||0, init.muzzleZ||0);
-    AIM_PX_X=init.crossX||0; AIM_PX_Y=init.crossY||0;
-    updateMuzzleMarker();
-    if (sightCal){
-      sightCal.pitch=init.pitchDeg; sightCal.yaw=init.yawDeg; sightCal.roll=init.rollDeg;
-      sightCal.crossX=init.crossX||0; sightCal.crossY=init.crossY||0; sightCal.fov=init.fovDeg||50;
-      sightCal.muzzleX=init.muzzleX||0; sightCal.muzzleY=init.muzzleY||0; sightCal.muzzleZ=init.muzzleZ||0;
-      sightCal.crossSize=init.crossSize!=null?init.crossSize:14; sightCal.circleSize=init.circleSize!=null?init.circleSize:0;
-      sightCal.hipX=init.hipX!=null?init.hipX:0.235; sightCal.hipY=init.hipY!=null?init.hipY:-0.225; sightCal.hipZ=init.hipZ!=null?init.hipZ:-0.35;
-      applyCrosshairSize(sightCal.crossSize, sightCal.circleSize);
-      applyGunHip(sightCal.hipX, sightCal.hipY, sightCal.hipZ);
-    }
-
-    window.__gunModelBox = new THREE.Box3().setFromObject(corrected);   // デバッグ検証用
-  }, undefined, (err)=>{
-    console.error("AR15モデル読込み失敗、プロシージャルガンを継続表示:", err);
+const loadedModels = {};   // type -> {root, front, rear, muzzle}
+let _GLTFLoader=null;
+/* 現在のsightCal値を3Dシーン（銃の姿勢・マズル・クロスヘア）へ反映する */
+function applyCalibToScene(){
+  applySightCalibration(sightCal.pitch, sightCal.yaw, sightCal.roll, sightCal.fov);
+  MUZZLE_OFFSET.set(sightCal.muzzleX, sightCal.muzzleY, sightCal.muzzleZ);
+  AIM_PX_X=sightCal.crossX; AIM_PX_Y=sightCal.crossY;
+  applyCrosshairSize(sightCal.crossSize, sightCal.circleSize);
+  applyGunHip(sightCal.hipX, sightCal.hipY, sightCal.hipZ);
+  updateMuzzleMarker();
+}
+function loadWeaponModel(type){
+  const spec=WEAPONS[type];
+  if (!spec || !_GLTFLoader) return Promise.resolve(null);
+  if (loadedModels[type]) return Promise.resolve(loadedModels[type]);
+  return new Promise((resolve)=>{
+    new _GLTFLoader().load("./assets/"+spec.file, (gltf)=>{
+      const corrected = new THREE.Group();
+      const inner = gltf.scene;
+      corrected.add(inner);
+      corrected.traverse(o=>{ if (o.isMesh){ o.castShadow=true; o.receiveShadow=false; } });
+      // 測定は corrected.parent(=gun) の逆行列を使うので、先にシーングラフへ繋いでおく
+      corrected.visible=false;
+      gun.add(corrected);
+      let skinned=null;
+      corrected.traverse(o=>{ if (o.isSkinnedMesh) skinned=o; });
+      /* 実銃相当の全長へ正規化 → 長手方向の向きを揃える → 中心を原点へ、の順に整える。
+         向きの補正は corrected ではなく内側(inner)に掛ける: corrected の quaternion は
+         applySightCalibration が毎回上書きするため、そこへ入れると補正が消えてしまう */
+      const fit=()=>{
+        // 何度呼んでも同じ結果になるよう、必ず等倍・原点に戻してから測り直す
+        corrected.scale.setScalar(1);
+        corrected.position.set(0,0,0);
+        corrected.updateMatrixWorld(true);
+        const size=new THREE.Box3().setFromObject(corrected).getSize(new THREE.Vector3());
+        corrected.scale.setScalar(spec.len / Math.max(size.x, size.y, size.z));
+        corrected.updateMatrixWorld(true);
+        const box2=new THREE.Box3().setFromObject(corrected);
+        corrected.position.sub(box2.getCenter(new THREE.Vector3()));
+        corrected.updateMatrixWorld(true);
+      };
+      fit();
+      if (type!=="ar15"){
+        /* モデルごとに全長がどの軸を向いているかバラバラなので、
+           1) 最長軸を Z（前後方向）へ回す　2) マズルが-Z(前方)に来るよう必要なら180°回す
+           の2段階で姿勢を揃える（どちらも内側のinnerに掛ける） */
+        corrected.updateMatrixWorld(true);
+        const size=new THREE.Box3().setFromObject(corrected).getSize(new THREE.Vector3());
+        if (size.x>size.z && size.x>=size.y) inner.rotation.y += Math.PI/2;        // 長手がX軸 → Zへ
+        else if (size.y>size.z && size.y>size.x) inner.rotation.x += Math.PI/2;    // 長手がY軸 → Zへ
+        fit();
+      }
+      let pts = measureSightPoints(corrected, skinned, type==="ar15");
+      // マズル（最も先端の頂点）が+Z側にある＝後ろ向きなので180°回して-Z(前方)へ揃える
+      if (type!=="ar15" && pts.muzzle.z > 0){
+        inner.rotation.y += Math.PI;
+        fit();
+        pts = measureSightPoints(corrected, skinned, false);
+      }
+      /* ADSで銃を前へ出す量: ストック後端がカメラの少し前に来る位置。
+         AR15は従来の実測調整値(-0.30)を維持し、他モデルは全長から自動算出する */
+      corrected.updateMatrixWorld(true);
+      const zHalf=new THREE.Box3().setFromObject(corrected).getSize(new THREE.Vector3()).z/2;
+      const entry={root:corrected, front:pts.front, rear:pts.rear, muzzle:pts.muzzle,
+        adsZ: type==="ar15" ? -0.30 : -(zHalf+0.06)};
+      loadedModels[type]=entry;
+      resolve(entry);
+    }, undefined, (err)=>{
+      console.error(spec.file+" の読込みに失敗しました:", err);
+      resolve(null);
+    });
   });
+}
+/* 銃を切り替える（モデルは初回のみ読込み、以降はキャッシュを表示切替）。
+   モデルごとに独立したサイト調整値・射撃モード制限が適用される */
+export function setWeapon(type){
+  if (!WEAPONS[type]) type="ar15";
+  S.weaponType=type;
+  const spec=WEAPONS[type];
+  // 射撃モードの制限（ショットガン・スナイパーはセミオートのみ）
+  if (!spec.modes.includes(weapon.mode)) weapon.mode=spec.modes[0];
+  if ($("fireMode")) $("fireMode").textContent = weapon.mode==="SEMI"?"SEMI":"FULL AUTO";
+  calibToSightCal(effectiveCalib(type));
+  return loadWeaponModel(type).then(entry=>{
+    if (S.weaponType!==type) return;   // 読込み待ちの間にさらに切り替わっていたら破棄
+    for (const [t,m] of Object.entries(loadedModels)) m.root.visible = (t===type);
+    if (entry){
+      gunCorrected = entry.root;
+      FRONT_LOCAL = entry.front; REAR_LOCAL = entry.rear; MUZZLE_LOCAL_MODEL = entry.muzzle;
+      ADS_Z = entry.adsZ;
+      gunProcedural.visible = false;
+    } else {
+      gunCorrected = null; MUZZLE_LOCAL_MODEL = null;
+      gunProcedural.visible = true;   // 読込み失敗時はプロシージャル銃にフォールバック
+    }
+    applyCalibToScene();
+    if (sightCal.active) sightCalRefresh();
+  });
+}
+export function loadGunModel(GLTFLoader){
+  _GLTFLoader=GLTFLoader;
+  gun.add(muzzleMarker);   // gunCorrectedではなくgunの子（scaleを二重適用しないため）
+  setWeapon(S.weaponType);
 }
 
 /* ============================================================
@@ -289,12 +419,19 @@ export function sightCalRefresh(){
   $("calHipXVal").textContent=sightCal.hipX.toFixed(3)+"m";
   $("calHipYVal").textContent=sightCal.hipY.toFixed(3)+"m";
   $("calHipZVal").textContent=sightCal.hipZ.toFixed(3)+"m";
+  $("calSpreadHipVal").textContent=sightCal.spreadHip.toFixed(2)+"°";
+  $("calSpreadAdsVal").textContent=sightCal.spreadAds.toFixed(2)+"°";
+  // 銃の種類チップの選択状態を現在の銃に合わせる
+  $("sightCalWeaponChips").querySelectorAll(".chip").forEach(c=>{
+    c.classList.toggle("sel", c.dataset.w===S.weaponType);
+  });
   // スライダー・数値入力の両方を現在値に同期（片方を操作してももう片方に反映される）
   for (const [id,val] of [["calPitch",sightCal.pitch],["calYaw",sightCal.yaw],["calRoll",sightCal.roll],
       ["calCrossX",sightCal.crossX],["calCrossY",sightCal.crossY],["calFov",sightCal.fov],
       ["calMuzzleX",sightCal.muzzleX],["calMuzzleY",sightCal.muzzleY],["calMuzzleZ",sightCal.muzzleZ],
       ["calCrossSize",sightCal.crossSize],["calCircleSize",sightCal.circleSize],
-      ["calHipX",sightCal.hipX],["calHipY",sightCal.hipY],["calHipZ",sightCal.hipZ]]){
+      ["calHipX",sightCal.hipX],["calHipY",sightCal.hipY],["calHipZ",sightCal.hipZ],
+      ["calSpreadHip",sightCal.spreadHip],["calSpreadAds",sightCal.spreadAds]]){
     if (document.activeElement!==$(id)) $(id).value=val;
     if (document.activeElement!==$(id+"Num")) $(id+"Num").value=val;
   }
@@ -376,6 +513,12 @@ export function wireSightCalUI(){
   bindCal("muzzleX","calMuzzleX"); bindCal("muzzleY","calMuzzleY"); bindCal("muzzleZ","calMuzzleZ");
   bindCal("crossSize","calCrossSize"); bindCal("circleSize","calCircleSize");
   bindCal("hipX","calHipX"); bindCal("hipY","calHipY"); bindCal("hipZ","calHipZ");
+  bindCal("spreadHip","calSpreadHip"); bindCal("spreadAds","calSpreadAds");
+  /* 銃の種類の切替（それぞれ独立したサイト調整値を持つ） */
+  $("sightCalWeaponChips").addEventListener("click",e=>{
+    const b=e.target.closest(".chip"); if (!b) return;
+    setWeapon(b.dataset.w);
+  });
   /* 現在のサイト調整値をJSON化（保存・書き出しで共用） */
   const currentCalib=()=>({
     pitchDeg:sightCal.pitch, yawDeg:sightCal.yaw, rollDeg:sightCal.roll,
@@ -383,19 +526,16 @@ export function wireSightCalUI(){
     muzzleX:sightCal.muzzleX, muzzleY:sightCal.muzzleY, muzzleZ:sightCal.muzzleZ,
     crossSize:sightCal.crossSize, circleSize:sightCal.circleSize,
     hipX:sightCal.hipX, hipY:sightCal.hipY, hipZ:sightCal.hipZ,
+    spreadHip:sightCal.spreadHip, spreadAds:sightCal.spreadAds,
   });
   $("sightCalReset").addEventListener("click",()=>{
-    // 「リセット」= 実測済みの固定キャリブレーション値（ゲーム既定値）へ戻す
-    sightCal.pitch=-0.7; sightCal.yaw=-0.6; sightCal.roll=0;
-    sightCal.crossX=30; sightCal.crossY=0; sightCal.fov=25;
-    sightCal.muzzleX=-0.002; sightCal.muzzleY=-0.007; sightCal.muzzleZ=0.357;
-    sightCal.crossSize=0; sightCal.circleSize=0;
-    sightCal.hipX=0.235; sightCal.hipY=-0.225; sightCal.hipZ=-0.35;
+    // 「リセット」= 現在の銃の既定キャリブレーション値へ戻す
+    calibToSightCal(currentWeapon().cal);
     sightCalRefresh();
   });
   $("sightCalApply").addEventListener("click",()=>{
     saveSightCalib(currentCalib());
-    $("sightCalSaved").textContent="保存しました（次回起動時も自動適用されます）";
+    $("sightCalSaved").textContent=`${currentWeapon().name}の値を保存しました（次回起動時も自動適用されます）`;
     setTimeout(()=>{ $("sightCalSaved").textContent=""; },2500);
   });
   $("sightCalExport").addEventListener("click",()=>{
@@ -403,7 +543,7 @@ export function wireSightCalUI(){
     const blob=new Blob([JSON.stringify(data,null,1)],{type:"application/json"});
     const url=URL.createObjectURL(blob);
     const a=document.createElement("a");
-    a.href=url; a.download="airsoft_fps_sight_calib.json";
+    a.href=url; a.download=`airsoft_fps_sight_calib_${S.weaponType}.json`;
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     URL.revokeObjectURL(url);
     $("sightCalSaved").textContent="JSONを書き出しました";
@@ -417,12 +557,7 @@ export function wireSightCalUI(){
     const reader=new FileReader();
     reader.onload=()=>{
       try{
-        const d=JSON.parse(reader.result);
-        sightCal.pitch=+d.pitchDeg||0; sightCal.yaw=+d.yawDeg||0; sightCal.roll=+d.rollDeg||0;
-        sightCal.crossX=+d.crossX||0; sightCal.crossY=+d.crossY||0; sightCal.fov=+d.fovDeg||50;
-        sightCal.muzzleX=+d.muzzleX||0; sightCal.muzzleY=+d.muzzleY||0; sightCal.muzzleZ=+d.muzzleZ||0;
-        sightCal.crossSize=d.crossSize!=null?+d.crossSize:14; sightCal.circleSize=d.circleSize!=null?+d.circleSize:0;
-        sightCal.hipX=d.hipX!=null?+d.hipX:0.22; sightCal.hipY=d.hipY!=null?+d.hipY:-0.22; sightCal.hipZ=d.hipZ!=null?+d.hipZ:-0.48;
+        calibToSightCal(JSON.parse(reader.result));
         sightCalRefresh();
         $("sightCalSaved").textContent="JSONを読み込みました（「確定・保存」を押すと次回も適用されます）";
         setTimeout(()=>{ $("sightCalSaved").textContent=""; },3200);
@@ -458,4 +593,9 @@ export function updateGun(dt){
   camera.fov += (targetFov-camera.fov)*Math.min(1,dt*14);
   camera.updateProjectionMatrix();
   document.body.classList.toggle("ads",RT.ads);
+  // スナイパーライフルのADSはスコープ表示（覗き込むと視界がスコープ内に切り替わる）。
+  // 完全に絞り込んでから出すため、FOVが目標付近に収束してから表示する
+  const scoped = RT.ads && currentWeapon().scope && camera.fov < ADS_FOV+6;
+  document.body.classList.toggle("scoped", scoped);
+  if (gunCorrected) gunCorrected.visible = !scoped;   // スコープ内では銃本体は視界の邪魔なので隠す
 }

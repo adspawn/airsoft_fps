@@ -20,6 +20,7 @@ import {
   enterOrbitView, exitOrbitView, updateGun, wireSightCalUI, muzzleMarker, MUZZLE_OFFSET,
   gunCorrected, FRONT_LOCAL, REAR_LOCAL, ADS_FOV, MUZZLE_LOCAL_MODEL, AIM_PX_X, AIM_PX_Y,
   toggleSightCalWalk, enterSightCalWalk, exitSightCalWalk, applyGunHip,
+  WEAPONS, setWeapon, currentWeapon, effectiveCalib,
 } from "./gun.js";
 import { updatePlayer, tryShoot, updateAmmoHUD, wireInput } from "./player.js";
 import {
@@ -71,6 +72,7 @@ window.__game={S, weapon, player, bbPool, targets, bots, spawnBB, simulate2D, so
   loadSightCalib, muzzleMarker, muzzleInGunLocal, MUZZLE_OFFSET, currentMuzzleLocal, tryShoot,
   sightCalOrbit, enterOrbitView, exitOrbitView, updateOrbitCamera,
   toggleSightCalWalk, enterSightCalWalk, exitSightCalWalk, applyGunHip, GUN_HIP,
+  WEAPONS, setWeapon, effectiveCalib, get weaponSpec(){return currentWeapon();},
   get FRONT_LOCAL(){return FRONT_LOCAL;}, get REAR_LOCAL(){return REAR_LOCAL;},
   get gunCorrected(){return gunCorrected;}, get ADS_FOV(){return ADS_FOV;},
   get MUZZLE_LOCAL_MODEL(){return MUZZLE_LOCAL_MODEL;},

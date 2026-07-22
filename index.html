@@ -62,9 +62,16 @@
   <div id="hintBar">ホイール / [ ] : ホップ調整　｜　O : 適正ホップ　｜　T : タイムアタック</div>
 </div>
 
+<div id="scopeOverlay"></div>
 <div id="sightCalCrosshair"></div>
 <div id="sightCalPanel" class="panel">
   <h2>🔧 サイト調整（デバッグ）</h2>
+  <div class="sub">調整する銃（銃ごとに別々の値が保存されます）</div>
+  <div class="chips" id="sightCalWeaponChips" style="margin:6px 0 10px">
+    <button class="chip sel" data-w="ar15">アサルトライフル</button>
+    <button class="chip" data-w="shotgun">ショットガン</button>
+    <button class="chip" data-w="sniper">スナイパー</button>
+  </div>
   <div class="sub">見た目のサイト合わせ（ピッチ/ヨー/ロール = リアサイト側が動く）</div>
   <div class="row">
     <label>ピッチ（上下） <b id="calPitchVal">0.00°</b></label>
@@ -171,6 +178,23 @@
     <div class="sliderLine">
       <input type="range" id="calHipZ" min="-1" max="0.2" step="0.005" value="-0.48">
       <input type="number" id="calHipZNum" min="-1" max="0.2" step="0.005" value="-0.48">
+    </div>
+  </div>
+  <div class="sub" style="margin:14px 0 2px">
+    BB弾の散り具合（円錐の半頂角）｜ 大きいほどバラける。移動中は1.8倍・しゃがみで0.7倍になります
+  </div>
+  <div class="row">
+    <label>散り 腰だめ <b id="calSpreadHipVal">0.45°</b></label>
+    <div class="sliderLine">
+      <input type="range" id="calSpreadHip" min="0" max="6" step="0.01" value="0.45">
+      <input type="number" id="calSpreadHipNum" min="0" max="6" step="0.01" value="0.45">
+    </div>
+  </div>
+  <div class="row">
+    <label>散り ADS <b id="calSpreadAdsVal">0.10°</b></label>
+    <div class="sliderLine">
+      <input type="range" id="calSpreadAds" min="0" max="6" step="0.01" value="0.10">
+      <input type="number" id="calSpreadAdsNum" min="0" max="6" step="0.01" value="0.10">
     </div>
   </div>
   <div class="sub" style="margin:6px 0">左クリックで試射 ｜ 右ドラッグでマズル周りを自由に回転、ホイールで拡大縮小</div>
@@ -308,6 +332,14 @@
       </div>
     </div>
     <!-- 対戦(NPC)モード用の設定（モード選択に応じて表示切替） -->
+    <div class="setRow" id="rowWeapon">
+      <label>銃の種類</label>
+      <div class="chips" id="weaponChips">
+        <button class="chip sel" data-w="ar15">アサルトライフル</button>
+        <button class="chip" data-w="shotgun">ショットガン</button>
+        <button class="chip" data-w="sniper">スナイパーライフル</button>
+      </div>
+    </div>
     <div class="setRow" id="rowVsRuleset">
       <label>対戦ルール</label>
       <div class="chips" id="vsRulesetChips">

@@ -28,6 +28,29 @@ canvas{display:block}
   transition:opacity .12s,width .1s,height .1s}
 .ads #crosshair .bar,.ads #crosshair .ring{opacity:0}
 
+/* スナイパーライフルのスコープ表示（覗き込むと視界がスコープ内に切り替わる）。
+   円形のケラレ(黒マスク)＋レティクル(十字線＋距離目盛)を画面全体に重ねる。
+   マスクはradial-gradientで、円の外側だけを不透明の黒で塗りつぶしている */
+#scopeOverlay{position:fixed;inset:0;pointer-events:none;opacity:0;
+  transition:opacity .12s;z-index:5}
+body.scoped #scopeOverlay{opacity:1}
+#scopeOverlay::before{content:"";position:absolute;inset:0;
+  background:radial-gradient(circle at 50% 50%,
+    rgba(0,0,0,0) 0,rgba(0,0,0,0) min(34vh,34vw),
+    rgba(0,0,0,.55) min(35vh,35vw),
+    #000 min(38vh,38vw),#000 100%)}
+/* レティクル: 中央で途切れる十字線（縦横）と中心点 */
+#scopeOverlay::after{content:"";position:absolute;left:50%;top:50%;
+  width:min(68vh,68vw);height:min(68vh,68vw);transform:translate(-50%,-50%);
+  border-radius:50%;border:2px solid rgba(0,0,0,.85);
+  background:
+    linear-gradient(to right,transparent calc(50% - 1px),rgba(0,0,0,.9) calc(50% - 1px),
+      rgba(0,0,0,.9) calc(50% + 1px),transparent calc(50% + 1px)),
+    linear-gradient(to bottom,transparent calc(50% - 1px),rgba(0,0,0,.9) calc(50% - 1px),
+      rgba(0,0,0,.9) calc(50% + 1px),transparent calc(50% + 1px));
+  -webkit-mask:radial-gradient(circle at 50% 50%,transparent 0,transparent 10px,#000 11px,#000 100%);
+  mask:radial-gradient(circle at 50% 50%,transparent 0,transparent 10px,#000 11px,#000 100%)}
+
 #hitmarker{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
   width:34px;height:34px;opacity:0}
 #hitmarker::before,#hitmarker::after{content:"";position:absolute;left:50%;top:50%;
